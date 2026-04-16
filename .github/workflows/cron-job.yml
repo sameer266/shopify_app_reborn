@@ -25,4 +25,4 @@ jobs:
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
-        run: node reborn/web/cron/csv_to_email.js
+        run: node web/cron/csv_to_email.js

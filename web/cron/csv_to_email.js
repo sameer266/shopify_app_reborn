@@ -54,7 +54,5 @@ async function sendEmail() {
   console.log(" Email sent with CSV");
 }
 
-/* -------------------------
-   RUN
--------------------------- */
+
 sendEmail();

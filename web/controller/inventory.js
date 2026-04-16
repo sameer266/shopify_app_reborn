@@ -1,52 +1,40 @@
 
-import { verifyShopifyHmac } from "../utils/hmac.js";
-import { sendEmail } from "../utils/email.js";
 
-/* -------------------------
-    HELPER FUNCTION TO PROCESS INVENTORY UPDATE
--------------------------- */
- async function  processInventoryUpdate(payload) {
-    console.log("--- Inventory Updated! ---");
-    console.log(payload);
+import { sendEmail } from "../utils/send_email.js";
 
 
+async function inventoryWebhookController(payload) {
 
-  await sendEmail({
-  to: "user@gmail.com",
-  subject: "Back in Stock Alert",
-  text: "Good news! Your product is back in stock.",
-});
-
-
-  return true;
-}
-
-/* -------------------------
-   MAIN WEBHOOK CONTROLLER
--------------------------- */
-export function inventoryWebhookController(req, res) {
   try {
-    // 1. HMAC check
-    if (!verifyShopifyHmac(req)) {
-      console.log("Invalid HMAC");
-      return res.status(401).send("Unauthorized");
-    }
 
-    // 2. Parse payload
-    const payload = JSON.parse(req.body.toString());
+  const  { inventory_item_id, available, location_id } = payload;
 
-    // 3. Process logic
-    const ok = processInventoryUpdate(payload);
+  // await sendEmail({
+  //   to: "sameerbaiju792@gmail.com",
+  //   subject: `Inventory Update - Item ID: ${inventory_item_id}`,
+  //   text: `The inventory for item ${inventory_item_id} has been updated. New quantity: ${available} at location ${location_id}.`,
+  //   html: `<h1>Inventory Update</h1>
+  //          <p><strong>Item ID:</strong> ${inventory_item_id}</p>
+  //          <p><strong>New Quantity:</strong> ${available}</p>
+  //          <p><strong>Location ID:</strong> ${location_id}</p>
+  //         ` ,
+  //   cc: "sameerbaiju792@gmail.com"
 
-    if (!ok) {
-      return res.status(500).send("Processing failed");
-    }
+  // });
 
-    console.log(" Inventory webhook processed");
+  console.log(` INVENTORY UPDATE | Item ID: ${inventory_item_id}`);
+  console.log(`New Quantity: ${available}`);
+  console.log(`Location: ${location_id}`);
 
-    return res.status(200).send("OK");
-  } catch (err) {
-    console.error("Inventory webhook error:", err);
-    return res.status(500).send("Server error");
+
   }
+  catch (error) {
+    console.error(" Inventory Webhook Error:", error.message);
+  }
+
 }
+
+
+export { inventoryWebhookController };
+
+

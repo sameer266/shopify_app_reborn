@@ -1,38 +1,26 @@
 import { DeliveryMethod } from "@shopify/shopify-api";
+import { inventoryWebhookController } from "./controller/inventory.js";
 
 /**
  * Webhook Handlers configuration
  * Matches the subscriptions in your shopify.app.toml
  */
 const PrivacyWebhookHandlers = {
-  /**
-   * Inventory Update Handler
-   */
+
+  //  Inventory levels update webhook handler
+
   INVENTORY_LEVELS_UPDATE: {
     deliveryMethod: DeliveryMethod.Http,
     callbackUrl: "/api/webhooks",
     callback: async (topic, shop, body) => {
-      try {
-        const payload = JSON.parse(body);
-        console.log("received webhook: ",  payload);  
-        
-        // Extract the variables you need
-        const { inventory_item_id, available, location_id } = payload;
+      const payload = JSON.parse(body);
+      await inventoryWebhookController(payload);
 
-        console.log("-----------------------------------------");
-        console.log(` INVENTORY UPDATE | Shop: ${shop}`);
-        console.log(`Item ID: ${inventory_item_id}`);
-        console.log(`New Quantity: ${available}`);
-        console.log(`Location: ${location_id}`);
-        console.log("-----------------------------------------");
-
-  
-
-      } catch (error) {
-        console.error(" Webhook Callback Error:", error.message);
-      }
     },
   },
+
+
+
 
   /**
    * MANDATORY COMPLIANCE HANDLERS

@@ -1,29 +1,29 @@
-name: Cron Job
+# name: Cron Job
 
-on:
-  schedule:
-    - cron: "*/55 * * * *"  # every 5 minutes
-  workflow_dispatch:        # manual run button
+# on:
+#   schedule:
+#     - cron: "*/55 * * * *"  # every 5 minutes
+#   workflow_dispatch:        # manual run button
 
-jobs:
-  run-script:
-    runs-on: ubuntu-latest
+# jobs:
+#   run-script:
+#     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+#     steps:
+#       - name: Checkout repo
+#         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "23"
+#       - name: Setup Node
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: "23"
 
-      - name: Install dependencies
-        run: npm install
+#       - name: Install dependencies
+#         run: npm install
 
-      - name: Run script
-        env:
-          GMAIL_USER: ${{ secrets.GMAIL_USER }}
-          GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
-          SERVICE_ACCOUNT: ${{secrets.SERVICE_ACCOUNT }}
-        run: node web/cron/csv_to_email.js
+#       - name: Run script
+#         env:
+#           GMAIL_USER: ${{ secrets.GMAIL_USER }}
+#           GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
+#           SERVICE_ACCOUNT: ${{secrets.SERVICE_ACCOUNT }}
+#         run: node web/cron/csv_to_email.js

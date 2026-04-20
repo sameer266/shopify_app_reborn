@@ -1,20 +1,37 @@
 import nodemailer from "nodemailer";
+import  {getAllData} from '../utils/database.js'
 
-/* -------------------------
-   SAMPLE DATA
--------------------------- */
-const data = [
-  { name: "Sameer", email: "sameer@gmail.com", product: "Shirt" },
-  { name: "John", email: "john@gmail.com", product: "Shoes" },
-];
+
+
+
 
 /* -------------------------
    CONVERT TO CSV
 -------------------------- */
 function convertToCSV(rows) {
-  const header = Object.keys(rows[0]).join(",");
-  const values = rows.map(row =>
-    Object.values(row).join(",")
+  if (!rows?.length) return "";
+
+  const cleanRows = rows.map(row => ({
+    item_id: row.item_id,
+    quantity: row.quantity,
+    shop_domain: row.shop_domain,
+    inventory_item_id: row.inventory_item_id,
+    variant_id: row.variant_id,
+    product_id: row.product_id,
+    product_name: row.product_name,
+    variant_name: row.variant_name,
+    product_image: row.product_image,
+    product_price: row.product_price,
+    raw_payload: row.raw_payload,
+    created_at: row.created_at?.value || row.created_at
+  }));
+
+  const header = Object.keys(cleanRows[0]).join(",");
+
+  const values = cleanRows.map(row =>
+    Object.values(row)
+      .map(v => `"${String(v ?? "").replace(/"/g, '""')}"`)
+      .join(",")
   );
 
   return [header, ...values].join("\n");
@@ -24,6 +41,8 @@ function convertToCSV(rows) {
    SEND EMAIL
 -------------------------- */
 async function sendEmail() {
+  const data = await  getAllData();
+  console.log(data)
   const csv = convertToCSV(data);
 
   const transporter = nodemailer.createTransport({

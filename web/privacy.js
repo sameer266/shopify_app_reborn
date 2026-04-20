@@ -14,8 +14,9 @@ const PrivacyWebhookHandlers = {
     callbackUrl: "/api/webhooks",
     callback: async (topic, shop, body) => {
       const payload = JSON.parse(body);
-      await inventoryWebhookController(payload);
-
+      payload.shop_domain = shop;
+      // Do not await to allow webhook to return 200 OK immediately, preventing Shopify from retrying and causing duplicates
+      inventoryWebhookController(payload).catch(console.error);
     },
   },
 

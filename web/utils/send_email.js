@@ -3,8 +3,8 @@ import nodemailer from "nodemailer";
 /* -------------------------
    SMTP CONFIG
 -------------------------- */
-const GMAIL_USER = process.env.GMAIL_USER;
-const GMAIL_PASSWORD = process.env.GMAIL_PASSWORD;
+const GMAIL_USER = "sameerbaiju792@gmail.com";
+const GMAIL_PASSWORD = "dqab ypde tvda alnv";
 
 /* -------------------------
    TRANSPORTER
@@ -25,7 +25,7 @@ const transporter = nodemailer.createTransport({
 export async function sendEmail({ to, subject, text, html, cc }) {
   try {
     const mailOptions = {
-      from: `"Shopify App" <${GMAIL_USER}>`,
+      from: `"Ellabache" <${GMAIL_USER}>`,
       to,
       subject,
       text,

@@ -1,0 +1,12 @@
+How We Fixed the Duplicate Webhooks
+
+Reason 1: Webhook 5-Second Timeout & Retries
+By architecture, Shopify webhooks require an HTTP "200 OK" response from our Express server within exactly 5 seconds. Previously, our route handler used the `await` keyword to execute the entire custom workflow: fetching GraphQL product data, inserting data into the PostgreSQL database, and sending the NodeMailer email.
+If those three network requests took 6 seconds combined, Shopify hit a timeout line, assumed our server dropped the packet, and automatically queued a "Retry" for that webhook. 
+* Example: Shopify sends Webhook A. Our server starts doing the work but takes 6 seconds. At the 5-second mark, Shopify says "They didn't respond! Send it again!" So Shopify sends Webhook A again. Result: You receive 2 identical emails.
+* The Fix: By removing the `await` keyword in the Express callback (`privacy.js`), we made the execution "asynchronous". Now, the server replies with HTTP 200 OK instantly to Shopify, and pushes the heavily-lifting (DB + Email) logic to the background event loop. Shopify doesn't trigger retries anymore.
+
+Reason 2: Missing Idempotency Check (Redundant Triggers)
+Sometimes, an action taken in the Shopify Admin dashboard fires multiple `inventory_levels/update` naturally because of internal Shopify hooks. (e.g. updating location settings or product descriptions might trigger an inventory refresh broadcast, even if the actual stock number didn't change at all).
+* Example: You edit a product description on Shopify. Shopify shoots a webhook: "Item 1 has 4 stock". A microsecond later, Shopify's internal system recalculates and blindly shoots another webhook: "Item 1 has 4 stock". Result: Our code processed both, creating 2 duplicate database logs!
+* The Fix: We introduced an Idempotency Database Check. Now, our Node.js app runs a rapid Postgres query (`getLatestInventoryUpdateForItem`) to check the last entry. If the incoming webhook claims "Item 1 has 4 stock," and our Postgres check says "The last thing we saved for Item 1 was 4 stock," we use an early `return;` to exit the function. The app safely drops the redundant payload and skipping sending the duplicate email.

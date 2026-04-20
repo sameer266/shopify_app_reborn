@@ -1,0 +1,15 @@
+{
+  "type": "service_account",
+  "project_id": "ellabache-singleview",
+  "private_key_id": "2da470c780454db8815455eb6ea40668dfea1c23",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDv7G5SFnbRZoHy\nowBHJjZ+Y+p1Hr7A7+rt1lk8WrQ0X9rMSK/yXneHONNSNTl9B5KYr7tHM1Fuuu1o\ngKvgaw3//vyMGx/yC72DIu3MGzXbGlnRA0T7T02IV/vh6Po5aG3emPLHOSD/+nxg\nXtC9bCZ5bLopeH5DRRptFYQLjIs3xQGVfhrUGVZEX9xxKipyFYioaWB6cY7iZMQv\nCBH3dfhzTGPPmxC+w3271F2/YLm5yE8JwF0BFTL6hXFuMdFaoeNHNvzCQmORBpw8\nIPr4m3PPn5k8LAUK3KAscAalO4dsl3zA916fpIMotqM3SeLW62MvjjuO2yLSe510\n0DdAx5BjAgMBAAECggEAFSS5XiuTogWOGyNpQVvpPn8wqMyiU99wzS/wIkT+D4WJ\nAyq+srXHg9eqq9p76/xQW3tVHkOz//WiOWzpeLgGflJq0DANwydstpNL8IpPVzU9\nyBEpMZp+Ay95x6Ff99IvqIfDEXKD6XsaHeYNMDxJMbc2urPfMK900jssrVXf6PSc\naqxAgplMiwSW0nhb1KY6qka4tS9k61yJ4ltJHz63t2blMHlctbn2GKDONqzK55i9\nLmgLzEisunoe8uRvMFLMExxlgBU/ngg5D/xL+wYSrLdzKRmBqH7tClsPmcvpgMVa\nIA6mFaiRJV26/Zvz4BbLrTPPpVYPOHe8r1kx+JqG4QKBgQD+Iewa8hRqV567qELb\n47JBA+dR0NkPIaip/xCilBMOAH/hRskxN+AmArBhuCH+vGeKeS2mlY9qDG0beVPi\nVzJHNL+Rj+zGW6B2atwzdzL3N5pHKO296rSe+UnFxtJNvpxMF4aLroE3shIpLfGl\nHfed3RcUMWSPPPlPdVisevhpAwKBgQDxr8dQigUjDSDJ8vt2I2JbdKn+taXKvV4w\nRBUn9PUUa0fijG4Wy+UOmtlCX4peJ9XLzjJ5PJVdWJ14Pc8lybP8WbhwVtjrJFdF\nvpeDhMZFG6k35iKQLGLjmatGcBt3N40AmGKzPF+E6W2QbYWnJeVadEk9WAY1rhEo\nbbV+l5mtIQKBgBBx/4Zq3flXvDTmmZUDMhjU+NYpjrJU+kYt9FShAm6oh537Z6+g\nrwemquVX9hM2+/hRCSw7h3FUZocdndkKzX0gI7l2t9rKOSMQnTlTYF/xIDG0q1Xb\n515WQXjj+d4AFLsz1ogZfdEt29EAYR/PRaPYl9K9s4U1a+jBbkCTIJojAoGAetU3\nm3tKORJHA9x2aQh6yLh2XXm8lVnBMQ6pIfGhTYtosX9lxDhEZjPVD6K3FDtysW5O\nwMdFsneDMMVZLn9g9nQzBQVeocOKh2viXXlxu1XfnwVbs6Kbb8l9/wKjMugMxayt\nHSMl+MsaYDkJoHXmJx7Kyl6eaVHabo2znG84L4ECgYEAg/u4ConAg2dzr6geo+va\nrUQ4DfoFjlENbk1V1l92jQmgMbNdxr2YkvzKZbzxB1E6JM85aGcrAyMa6qjsUSHk\nTb2ifmB49GDwlNwpHjodXP2kC2Dbx5tuW6S4DV+pYJsnatusxA72pO/hoWYLACQb\nzBwpMjvKbQ3YCbAHzDDjXC8=\n-----END PRIVATE KEY-----\n",
+  "client_email": "bigquery-mcp-access@ellabache-singleview.iam.gserviceaccount.com",
+  "client_id": "110773237856294103298",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/bigquery-mcp-access%40ellabache-singleview.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
+
+

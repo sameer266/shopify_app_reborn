@@ -1,13 +1,10 @@
 import { BigQuery } from "@google-cloud/bigquery";
 import { fileURLToPath } from "url";
-import path from "path";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const key = Buffer.from(process.env.SERVICE_ACCOUNT, "base64").toString("utf8");
 
 const bigquery = new BigQuery({
-  keyFilename: path.join(__dirname, "..", "utils", "ellabache-singleview-2da470c78045.json"),
-});
+  credentials: JSON.parse(key),
+});;
 
 export async function saveInventoryUpdate({
   itemId,

@@ -1,0 +1,332 @@
+{% schema %}
+{
+  "name": "Notify Me",
+  "target": "section",
+  "enabled_on": { "templates": ["product"] },
+  "settings": [
+    {
+      "type": "text",
+      "id": "backend_url",
+      "label": "Backend URL",
+      "default": "https://workers.dev"
+    }
+  ]
+}
+{% endschema %}
+
+<style>
+  #NotifyMeApp {
+    width: 100%;
+    margin-top: 16px;
+    font-family: Arial, sans-serif;
+  }
+
+  .notify-label-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .notify-label {
+    letter-spacing:0.5px;
+    font-size: 11px;
+    font-weight: 500;
+    color: #111;
+    text-transform: uppercase;
+  }
+
+  .notify-tooltip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border: 1px solid #070707;
+    border-radius: 50%;
+    font-size: 10px;
+    color: #070707;
+    cursor: default;
+    flex-shrink: 0;
+  }
+
+  .notify-tooltip:hover .notify-tooltip-text {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .notify-tooltip-text {
+    opacity: 0;
+    pointer-events: none;
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #111;
+    color: #fff;
+    font-size: 11px;
+    line-height: 1.5;
+    padding: 8px 10px;
+    width: 200px;
+    border-radius: 2px;
+    transition: opacity 0.15s ease;
+    z-index: 10;
+    text-transform: none;
+    font-weight: 400;
+    letter-spacing: 0;
+  }
+
+  .notify-tooltip-text::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: #111;
+  }
+
+  #notifyForm {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  #notifyForm input[type="email"] {
+    flex: 1;
+    min-width: 200px;
+    padding: 10px 12px;
+    font-size: 13px;
+    border: 1px solid #111;
+    outline: none;
+    background: #fff;
+    transition: border-color 0.15s;
+  }
+
+  #notifyForm input[type="email"]:focus {
+    border-color: #000;
+  }
+
+  #notifyForm button {
+    padding: 10px 18px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border: 1px solid #000;
+    background: #000;
+    color: #fff;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  #notifyForm button:hover {
+    background: #fff;
+    color: #000;
+  }
+
+  .swal-notify.swal2-popup {
+    border-radius: 0 !important;
+    border: 1px solid #111 !important;
+    padding: 32px 28px !important;
+    font-family: Arial, sans-serif !important;
+    max-width: 360px !important;
+  }
+
+  .swal-notify .swal2-title {
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    color: #111 !important;
+    letter-spacing: 0.5px !important;
+    text-transform: uppercase !important;
+    padding: 0 !important;
+    margin-bottom: 8px !important;
+  }
+
+  .swal-notify .swal2-html-container {
+    font-size: 13px !important;
+    color: #555 !important;
+    margin: 0 !important;
+  }
+
+  .swal-notify .swal2-confirm {
+    background: #111 !important;
+    color: #fff !important;
+    border-radius: 0 !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    letter-spacing: 1px !important;
+    text-transform: uppercase !important;
+    padding: 10px 24px !important;
+    border: 1px solid #111 !important;
+    box-shadow: none !important;
+    transition: background 0.15s, color 0.15s !important;
+  }
+
+  .swal-notify .swal2-confirm:hover {
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  .swal-notify .swal2-icon {
+    transform: scale(0.7) !important;
+    margin: 0 auto 8px !important;
+  }
+
+  .swal-notify .swal2-icon.swal2-success {
+    border-color: #111 !important;
+    color: #111 !important;
+  }
+
+  .swal-notify .swal2-icon.swal2-success [class^="swal2-success-line"] {
+    background-color: #111 !important;
+  }
+
+  .swal-notify .swal2-icon.swal2-success .swal2-success-ring {
+    border-color: #111 !important;
+  }
+
+  .swal-notify .swal2-icon.swal2-error {
+    border-color: #111 !important;
+    color: #111 !important;
+  }
+
+  .swal-notify .swal2-icon.swal2-error [class^="swal2-x-mark-line"] {
+    background-color: #111 !important;
+  }
+
+  .swal-notify .swal2-icon.swal2-info {
+    border-color: #111 !important;
+    color: #111 !important;
+  }
+
+  @media (max-width: 480px) {
+    #notifyForm { flex-direction: column; align-items: stretch; }
+    #notifyForm button { width: 100%; }
+  }
+</style>
+
+<div
+  id="NotifyMeApp"
+  style="display:none"
+  data-product-id="{{ product.id }}"
+  data-product-handle="{{ product.handle }}"
+  data-product-title="{{ product.title | escape }}"
+  data-product-image="{{ product.featured_image | img_url: '300x300' }}"
+  data-backend-url="{{ block.settings.backend_url }}"
+>
+  <div class="notify-label-row">
+    <span class="notify-label">Get Notified</span>
+    <span class="notify-tooltip">
+      ?
+      <span class="notify-tooltip-text">
+        This item is currently out of stock. Enter your email and we'll notify you the moment it's available again.
+      </span>
+    </span>
+  </div>
+
+  <form id="notifyForm">
+    <input type="email" name="email" placeholder="Enter your email" required />
+    <button type="submit">Notify me</button>
+  </form>
+</div>
+
+<script type="application/json" id="variant-data">
+  [{% for v in product.variants %}{"id":{{ v.id }},"title":{{ v.title | json }},"available":{{ v.available }}}{% unless forloop.last %},{% endunless %}{% endfor %}]
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11" defer></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const container = document.getElementById("NotifyMeApp");
+  if (!container) return;
+
+  const form       = document.getElementById("notifyForm");
+  const variants   = JSON.parse(document.getElementById("variant-data").textContent);
+  const productId  = container.dataset.productId;
+  const backendUrl = container.dataset.backendUrl;
+
+  function getVariantId() {
+    const input = document.querySelector('form[action*="/cart/add"] [name="id"]');
+    return input ? Number(input.value) : null;
+  }
+
+  function getVariant() {
+    return variants.find(v => v.id === getVariantId()) || null;
+  }
+
+  function notify(options) {
+    return Swal.fire({
+      ...options,
+      customClass: { popup: "swal-notify" },
+      buttonsStyling: false,
+    });
+  }
+
+  function toggleUI() {
+    const v = getVariant();
+    if (!v) return;
+    container.style.display = v.available ? "none" : "block";
+  }
+
+  document.addEventListener("change", (e) => {
+    if (e.target.name === "id") toggleUI();
+  });
+
+  toggleUI();
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const email   = form.querySelector('input[name="email"]').value.trim();
+    const variant = getVariant();
+
+    if (!variant) {
+      notify({ icon: "error", title: "Variant not selected" });
+      return;
+    }
+
+    notify({ title: "Processing...", allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+    try {
+      const res = await fetch(`${backendUrl}/api/subscribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shop_domain:    window.Shopify?.shop || location.hostname,
+          product_id:     productId,
+          product_handle:container.dataset.productHandle,
+          product_title:  container.dataset.productTitle,
+          image_url:      container.dataset.productImage,
+          variant_id:     variant.id,
+          variant_title:  variant.title || null,
+          customer_email: email,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        const messages = {
+          "Already subscribed":         { title: "Already on the list", html: "You'll be notified when this item is back." },
+          "Re-subscribed successfully": { title: "Re-subscribed",       html: "We'll let you know when it's back in stock." },
+        };
+
+        const msg = messages[data.message] ?? { title: "You're on the list", html: "We'll email you when this item is available." };
+
+        notify({ icon: "success", ...msg, confirmButtonText: "Got it" });
+        form.reset();
+      } else {
+        notify({ icon: "error", title: "Something went wrong", html: data?.error || "Please try again." });
+      }
+
+    } catch {
+      notify({ icon: "error", title: "Network error", html: "Check your connection and try again." });
+    }
+  });
+});
+</script>

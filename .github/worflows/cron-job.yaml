@@ -1,0 +1,33 @@
+name: Cron Job
+
+on:
+  schedule:
+    - cron: "*/55 * * * *"  # every 5 minutes
+  workflow_dispatch:        # manual run button
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "23"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run script
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
+          MAILGUN_API_KEY: ${{secrets.MAILGUN_API_KEY}}
+          MAILGUN_DOMAIN: ${{secrets.MAILGUN_DOMAIN}}
+          GCP_FIIREBASE_PRIVATE_KEY: ${{secrets.GCP_FIIREBASE_PRIVATE_KEY}}
+
+      
+        run: node app/cron/cron.js

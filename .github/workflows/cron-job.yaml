@@ -2,7 +2,7 @@ name: Cron Job
 
 on:
   schedule:
-    - cron: "*/55 * * * *"  # every 5 minutes
+    - cron: "*/55 * * * *"  # every 55 minutes
   workflow_dispatch:        # manual run button
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
           node-version: "23"
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run script
         env:

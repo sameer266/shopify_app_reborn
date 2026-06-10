@@ -23,11 +23,10 @@ jobs:
 
       - name: Run script
         env:
-          GMAIL_USER: ${{ secrets.GMAIL_USER }}
-          GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
+     
           MAILGUN_API_KEY: ${{secrets.MAILGUN_API_KEY}}
           MAILGUN_DOMAIN: ${{secrets.MAILGUN_DOMAIN}}
-          GCP_FIIREBASE_PRIVATE_KEY: ${{secrets.GCP_FIIREBASE_PRIVATE_KEY}}
+          GCP_FIREBASE_PRIVATE_KEY: ${{secrets.GCP_FIREBASE_PRIVATE_KEY}}
 
       
         run: node app/cron/cron.js

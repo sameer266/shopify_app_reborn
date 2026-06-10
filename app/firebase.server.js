@@ -4,7 +4,7 @@ function getServiceAccount() {
 
   return {
    projectId : "ellabache-singleview",
-  clientEmail : "firebase-adminsdk-fbsvc@ellabache-singleview.iam.gserviceaccount.com",
+  clientEmail : process.env.GCP_FIREBASE_CLIENT_EMAIL,
   privateKey : process.env.GCP_FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
 
   }

@@ -26,6 +26,7 @@ jobs:
      
           MAILGUN_API_KEY: ${{secrets.MAILGUN_API_KEY}}
           MAILGUN_DOMAIN: ${{secrets.MAILGUN_DOMAIN}}
+          GCP_FIREBASE_CLIENT_EMAIL: ${{secrets.GCP_FIREBASE_CLIENT_EMAIL}}
           GCP_FIREBASE_PRIVATE_KEY: ${{secrets.GCP_FIREBASE_PRIVATE_KEY}}
 
       

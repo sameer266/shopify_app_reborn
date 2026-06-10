@@ -2,8 +2,8 @@ name: Cron Job
 
 on:
   schedule:
-    - cron: "*/55 * * * *"   # every 5 minutes (your comment was wrong)
-  workflow_dispatch:
+    - cron: "*/55 * * * *"  # every 5 minutes
+  workflow_dispatch:        # manual run button
 
 jobs:
   run-script:
@@ -16,16 +16,17 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "18"   # better than 23 for stability
+          node-version: "23"
 
       - name: Install dependencies
-        working-directory: app/cron
-        run: npm ci        
+        run: npm install
 
       - name: Run script
         env:
-          MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
-          MAILGUN_DOMAIN: ${{ secrets.MAILGUN_DOMAIN }}
-          GCP_FIREBASE_PRIVATE_KEY: ${{ secrets.GCP_FIREBASE_PRIVATE_KEY }}
+     
+          MAILGUN_API_KEY: ${{secrets.MAILGUN_API_KEY}}
+          MAILGUN_DOMAIN: ${{secrets.MAILGUN_DOMAIN}}
+          GCP_FIREBASE_PRIVATE_KEY: ${{secrets.GCP_FIREBASE_PRIVATE_KEY}}
 
+      
         run: node app/cron/cron.js

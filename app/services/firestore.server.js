@@ -1,4 +1,3 @@
-
 import { firestore, firestoreTimestamp } from "../firebase.server.js";
 
 const shops = firestore.collection("Shopify_app_shop");
@@ -7,6 +6,7 @@ const inventory = firestore.collection("Shopify_app_inventory_sync");
 const logs = firestore.collection("Shopify_app_notification_logs");
 
 const now = () => firestoreTimestamp();
+export const db = firestore;
 
 /**
  * Extract numeric ID from GID format
@@ -20,13 +20,11 @@ export function extractNumericId(id) {
   return parts[parts.length - 1] || null;
 }
 
+/* -------------------------
+   SHOP
+-------------------------- */
 
-
-export async function saveShopInstall({
-  shopDomain,
-  accessToken,
-  installedAt,
-}) {
+export async function saveShopInstall({ shopDomain, accessToken, installedAt }) {
   if (!shopDomain || !accessToken) {
     throw new Error("Missing shopDomain or accessToken");
   }
@@ -43,36 +41,16 @@ export async function saveShopInstall({
 
   if (snap.exists) {
     await ref.update(payload);
-
-    return {
-      id: shopDomain,
-      ...payload,
-      updated: true,
-    };
+    return { id: shopDomain, ...payload, updated: true };
   }
 
-
-  await ref.set({
-    ...payload,
-    created_at: now(),
-  });
-
-  return {
-    id: shopDomain,
-    ...payload,
-    created: true,
-  };
+  await ref.set({ ...payload, created_at: now() });
+  return { id: shopDomain, ...payload, created: true };
 }
-
-/* -------------------------
-   SHOP
--------------------------- */
 
 export async function getShopByDomain(shopDomain) {
   if (!shopDomain) return null;
-
   const snap = await shops.doc(String(shopDomain)).get();
-
   return snap.exists ? { id: snap.id, ...snap.data() } : null;
 }
 
@@ -92,8 +70,8 @@ export async function createSubscriber({
 }) {
   if (!shop_domain || !variant_id || !customer_email) return null;
 
-  // Extract numeric variant ID for consistent querying
   const numericVariantId = extractNumericId(variant_id);
+  const numericProductId = extractNumericId(product_id);
 
   const snap = await subscribers
     .where("shop_domain", "==", String(shop_domain))
@@ -101,8 +79,6 @@ export async function createSubscriber({
     .where("customer_email", "==", String(customer_email))
     .limit(1)
     .get();
-
-  const numericProductId = extractNumericId(product_id);
 
   const payload = {
     shop_domain: String(shop_domain),
@@ -132,46 +108,23 @@ export async function createSubscriber({
       updated_at: now(),
     };
 
-    if (numericProductId) {
-      updatedFields.product_id = String(numericProductId);
-    }
-
-    if (product_title) {
-      updatedFields.product_title = product_title;
-    }
-
-    if (image_url) {
-      updatedFields.image_url = image_url;
-    }
-
-    if (variant_title) {
-      updatedFields.variant_title = variant_title;
-    }
+    if (numericProductId) updatedFields.product_id = String(numericProductId);
+    if (product_title) updatedFields.product_title = product_title;
+    if (image_url) updatedFields.image_url = image_url;
+    if (variant_title) updatedFields.variant_title = variant_title;
 
     await doc.ref.update(updatedFields);
-
     await createOrUpdateInventoryState(inventoryPayload);
-
     return { id: doc.id, ...existingData, ...updatedFields };
   }
 
   const doc = await subscribers.add(payload);
-
   await createOrUpdateInventoryState(inventoryPayload);
-
   return { id: doc.id, ...payload };
 }
 
-
-
-export async function getSubscriberByEmailVariant(
-  shop_domain,
-  customer_email,
-  variant_id
-) {
-  if (!shop_domain || !customer_email || !variant_id) {
-    return null;
-  }
+export async function getSubscriberByEmailVariant(shop_domain, customer_email, variant_id) {
+  if (!shop_domain || !customer_email || !variant_id) return null;
 
   const snap = await subscribers
     .where("shop_domain", "==", String(shop_domain))
@@ -180,27 +133,69 @@ export async function getSubscriberByEmailVariant(
     .limit(1)
     .get();
 
-  if (snap.empty) {
-    return null;
-  }
-
+  if (snap.empty) return null;
   const doc = snap.docs[0];
+  return { id: doc.id, ...doc.data() };
+}
 
-  return {
-    id: doc.id,
-    ...doc.data(),
-  };
+export async function getSubscribersForShopVariant(shop_domain, variant_id) {
+  if (!shop_domain || !variant_id) return [];
+
+  const numericVariantId = extractNumericId(variant_id);
+
+  const snap = await subscribers
+    .where("shop_domain", "==", String(shop_domain))
+    .where("variant_id", "==", String(numericVariantId))
+    .where("status", "==", "waiting")
+    .get();
+
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export async function getAllSubscribers(shop_domain) {
+  if (!shop_domain) return [];
+  try {
+    const snapshot = await subscribers
+      .where("shop_domain", "==", String(shop_domain))
+      .get();
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.error("Error fetching all subscribers:", error);
+    return [];
+  }
+}
+
+export async function getWaitingSubscribers(shop_domain) {
+  if (!shop_domain) return [];
+
+  const snap = await subscribers
+    .where("shop_domain", "==", String(shop_domain))
+    .where("status", "==", "waiting")
+    .get();
+
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export async function updateSubscriberStatus(subscriberId, status) {
+  const ref = subscribers.doc(subscriberId);
+
+  await ref.update({
+    status,
+    notified_at: status === "notified" ? now() : null,
+  });
+
+  const snap = await ref.get();
+  return { id: snap.id, ...snap.data() };
 }
 
 /* -------------------------
-   INVENTORY STATE 
+   INVENTORY STATE
    KEY = shop_domain + variant_id
 -------------------------- */
 
 export async function findInventoryState(shop_domain, variant_id) {
   if (!shop_domain || !variant_id) return null;
 
-  // Always query by numeric ID for consistency
   const numericVariantId = extractNumericId(variant_id);
 
   const snap = await inventory
@@ -210,12 +205,9 @@ export async function findInventoryState(shop_domain, variant_id) {
     .get();
 
   if (snap.empty) return null;
-
   const doc = snap.docs[0];
   return { id: doc.id, ...doc.data() };
 }
-
-/* CREATE OR UPDATE INVENTORY */
 
 export async function createOrUpdateInventoryState({
   shop_domain,
@@ -227,7 +219,6 @@ export async function createOrUpdateInventoryState({
 }) {
   if (!shop_domain || !variant_id) return null;
 
-  // Extract numeric IDs for consistent querying
   const numericVariantId = extractNumericId(variant_id);
   const numericProductId = extractNumericId(product_id);
   const numericInventoryItemId = extractNumericId(inventory_item_id);
@@ -244,13 +235,8 @@ export async function createOrUpdateInventoryState({
     last_checked_at: now(),
   };
 
-  if (numericProductId) {
-    payload.product_id = String(numericProductId);
-  }
-
-  if (numericInventoryItemId) {
-    payload.inventory_item_id = String(numericInventoryItemId);
-  }
+  if (numericProductId) payload.product_id = String(numericProductId);
+  if (numericInventoryItemId) payload.inventory_item_id = String(numericInventoryItemId);
 
   if (available_qty !== undefined) {
     payload.available_qty = Number(available_qty || 0);
@@ -258,140 +244,80 @@ export async function createOrUpdateInventoryState({
     payload.available_qty = 0;
   }
 
-  if (last_notified_at) {
-    payload.last_notified_at = new Date(last_notified_at);
-  }
+  if (last_notified_at) payload.last_notified_at = new Date(last_notified_at);
 
   if (!snap.empty) {
     const doc = snap.docs[0];
     await inventory.doc(doc.id).update(payload);
-
     return { id: doc.id, ...payload, updated: true };
   }
 
-  const doc = await inventory.add({
-    ...payload,
-    created_at: now(),
-  });
-
+  const doc = await inventory.add({ ...payload, created_at: now() });
   return { id: doc.id, ...payload, created: true };
 }
 
-/* UPDATE INVENTORY  */
-
-// export async function updateInventoryState({
-//   shop_domain,
-//   inventory_item_id,
-//   available_qty,
-// }) {
-//   if (!shop_domain || !inventory_item_id) return null;
-
-//   const existingSnap = await inventory
-//     .where("shop_domain", "==", String(shop_domain))
-//     .where("inventory_item_id", "==", String(inventory_item_id))
-//     .limit(1)
-//     .get();
-
-//   const payload = {
-//     available_qty: Number(available_qty || 0),
-//     last_checked_at: now(),
-//   };
-
-//   if (!existingSnap.empty) {
-//     const doc = existingSnap.docs[0];
-//     await doc.ref.update(payload);
-
-//     return { id: doc.id, ...payload, updated: true };
-//   }
-
-//   const doc = await inventory.add({
-//     shop_domain: String(shop_domain),
-//     inventory_item_id: String(inventory_item_id),
-//     available_qty: Number(available_qty || 0),
-//     created_at: now(),
-//     last_checked_at: now(),
-//   });
-
-//   return { id: doc.id, ...payload, created: true };
-// }
-
-/* -------------------------
-   SUBSCRIBERS QUERY
--------------------------- */
-
-export async function getSubscribersForShopVariant(
-  shop_domain,
-  variant_id
-) {
-  if (!shop_domain || !variant_id) return [];
-
-  // Extract numeric variant ID for consistent querying
-  const numericVariantId = extractNumericId(variant_id);
-
-  const snap = await subscribers
-    .where("shop_domain", "==", String(shop_domain))
-    .where("variant_id", "==", String(numericVariantId))
-    .where("status", "==", "waiting")
-    .get();
-
-  return snap.docs.map((d) => ({
-    id: d.id,
-    ...d.data(),
-  }));
-}
-
-
-export async function getAllSubscribers() {
+export async function getAllInventoryStates(shop_domain) {
+  if (!shop_domain) return [];
   try {
-    const snapshot = await subscribers.get();
-    return snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
-
-  } catch (error) {
-    console.log("Error in getting all subscribers");
-    return [];
-
-  }
-}
-
-
-
-
-
-export async function getAllInventoryStates() {
-  try {
-    const snapshot = await inventory.get();
-    return snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    const snapshot = await inventory
+      .where("shop_domain", "==", String(shop_domain))
+      .get();
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
   } catch (error) {
     console.error("Error fetching inventory states:", error);
     return [];
   }
 }
 
-export async function getAllNotificationLogs() {
+/* -------------------------
+   NOTIFICATION LOGS
+-------------------------- */
+
+export async function createNotificationLog({
+  subscriber_id,
+  shop_domain,
+  variant_id,
+  customer_email,
+  email_sent,
+}) {
+  const payload = {
+    subscriber_id,
+    shop_domain: String(shop_domain),
+    variant_id: String(variant_id),
+    customer_email: customer_email ? String(customer_email) : null,
+    email_sent,
+    sent_at: now(),
+    created_at: now(),
+  };
+
+  const doc = await logs.add(payload);
+  return { id: doc.id, ...payload };
+}
+
+export async function getAllNotificationLogs(shop_domain) {
+  if (!shop_domain) return [];
   try {
-    const snapshot = await logs.get();
-    return snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    const snapshot = await logs
+      .where("shop_domain", "==", String(shop_domain))
+      .get();
+    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
   } catch (error) {
     console.error("Error fetching notification logs:", error);
     return [];
   }
 }
 
-/**
- * Get top requested products with request counts
- */
-export async function getTopRequestedProducts(limit = 10) {
+/* -------------------------
+   ANALYTICS
+-------------------------- */
+
+export async function getTopRequestedProducts(shop_domain) {
+  if (!shop_domain) return [];
   try {
-    const snapshot = await subscribers.get();
+    const snapshot = await subscribers
+      .where("shop_domain", "==", String(shop_domain))
+      .get();
+
     const productMap = {};
 
     snapshot.docs.forEach((doc) => {
@@ -416,24 +342,23 @@ export async function getTopRequestedProducts(limit = 10) {
       else if (data.status === "notified") productMap[key].notified++;
     });
 
-    // Convert to array, sort by count descending, limit results
-    return Object.values(productMap)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, limit);
+    return Object.values(productMap).sort((a, b) => b.count - a.count);
   } catch (error) {
     console.error("Error fetching top requested products:", error);
     return [];
   }
 }
+export async function getNotificationMetrics(shop_domain) {
+  if (!shop_domain) return {
+    subscribers: { total: 0, waiting: 0, notified: 0, unsubscribed: 0 },
+    notifications: { total: 0, successful: 0, failed: 0, successRate: 0 },
+    trends: [],
+  };
 
-/**
- * Get notification metrics (success rate, trends, etc)
- */
-export async function getNotificationMetrics() {
   try {
     const [subscribersSnap, logsSnap] = await Promise.all([
-      subscribers.get(),
-      logs.get(),
+      subscribers.where("shop_domain", "==", String(shop_domain)).get(),
+      logs.where("shop_domain", "==", String(shop_domain)).get(),
     ]);
 
     const subscriberData = subscribersSnap.docs.map((d) => d.data());
@@ -447,10 +372,8 @@ export async function getNotificationMetrics() {
     const totalNotifications = logData.length;
     const successfulNotifications = logData.filter((l) => l.email_sent === true).length;
     const failedNotifications = logData.filter((l) => l.email_sent === false).length;
-
     const successRate = totalNotifications > 0 ? successfulNotifications / totalNotifications : 0;
 
-    // Trends by day (last 30 days)
     const trendMap = {};
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -459,17 +382,13 @@ export async function getNotificationMetrics() {
       const logDate = log.sent_at?.toDate?.() || new Date(log.sent_at);
       if (logDate >= thirtyDaysAgo) {
         const dateKey = logDate.toISOString().split("T")[0];
-        if (!trendMap[dateKey]) {
-          trendMap[dateKey] = { date: dateKey, sent: 0, failed: 0 };
-        }
+        if (!trendMap[dateKey]) trendMap[dateKey] = { date: dateKey, sent: 0, failed: 0 };
         if (log.email_sent) trendMap[dateKey].sent++;
         else trendMap[dateKey].failed++;
       }
     });
 
-    const trends = Object.values(trendMap).sort((a, b) =>
-      new Date(a.date) - new Date(b.date)
-    );
+    const trends = Object.values(trendMap).sort((a, b) => new Date(a.date) - new Date(b.date));
 
     return {
       subscribers: {
@@ -496,60 +415,6 @@ export async function getNotificationMetrics() {
   }
 }
 
-export async function updateSubscriberStatus(
-  subscriberId,
-  status
-) {
-  const ref = subscribers.doc(subscriberId);
-
-  await ref.update({
-    status,
-    notified_at:
-      status === "notified" ? now() : null,
-  });
-
-  const snap = await ref.get();
-
-  return { id: snap.id, ...snap.data() };
-}
-
-export async function getWaitingSubscribers() {
-  const snap = await subscribers
-    .where("status", "==", "waiting")
-    .get();
-
-  return snap.docs.map((d) => ({
-    id: d.id,
-    ...d.data(),
-  }));
-}
-
-/* -------------------------
-   NOTIFICATION LOGS
--------------------------- */
-
-export async function createNotificationLog({
-  subscriber_id,
-  shop_domain,
-  variant_id,
-  customer_email,
-  email_sent,
-}) {
-  const payload = {
-    subscriber_id,
-    shop_domain: String(shop_domain),
-    variant_id: String(variant_id),
-    customer_email: customer_email ? String(customer_email) : null,
-    email_sent,
-    sent_at: now(),
-    created_at: now(),
-  };
-
-  const doc = await logs.add(payload);
-
-  return { id: doc.id, ...payload };
-}
-
 /* -------------------------
    GROUPS (SYNC BATCH)
 -------------------------- */
@@ -563,16 +428,13 @@ export async function getPendingVariantGroups() {
 
   snap.docs.forEach((doc) => {
     const data = doc.data();
-
     if (!data.shop_domain || !data.variant_id) return;
 
     const shop = String(data.shop_domain);
     const variant = extractNumericId(data.variant_id);
-
     if (!variant) return;
 
     if (!groups[shop]) groups[shop] = new Set();
-
     groups[shop].add(String(variant));
   });
 
@@ -581,8 +443,6 @@ export async function getPendingVariantGroups() {
     variant_ids: [...set],
   }));
 }
-
-
 
 export async function isVariantTracked(shop_domain, variant_id) {
   if (!shop_domain || !variant_id) return false;

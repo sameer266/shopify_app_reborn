@@ -40,18 +40,134 @@ async function getRequestData(request) {
 
   const get = (key) => (body?.get ? body.get(key) : body[key]);
 
-  console.log("Product handle" + get("product_handle"))
-
   return {
     shop_domain: get("shop_domain"),
     product_id: get("product_id"),
-    product_handle : get("product_handle"),
+    product_handle: get("product_handle"),
     product_title: get("product_title"),
     image_url: get("image_url"),
     variant_id: get("variant_id"),
     variant_title: get("variant_title"),
     customer_email: get("customer_email"),
+
+    // optional customer data
+    first_name: get("first_name"),
+    last_name: get("last_name"),
+    phone: get("phone"),
   };
+}
+
+/**
+ * ActiveCampaign Sync (NON-BLOCKING)
+ */
+
+
+
+
+async function syncToActiveCampaign(data) {
+try {
+ const API_URL = "https://ellabache49720.api-us1.com";
+    const API_KEY = "8cfc7b6b07d9539ec82eb6d63daf95600492e15771018191e03aac774fce4ea66c803ba0";
+const LIST_ID = 42;
+const TAG_ID = 213;
+
+const contactPayload = {
+  email: data.customer_email,
+};
+
+if (data.first_name) contactPayload.firstName = data.first_name;
+if (data.last_name) contactPayload.lastName = data.last_name;
+if (data.phone) contactPayload.phone = data.phone;
+
+// 1. Create / Update Contact
+const contactRes = await fetch(`${API_URL}/api/3/contact/sync`, {
+  method: "POST",
+  headers: {
+    "Api-Token": API_KEY,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    contact: contactPayload,
+  }),
+});
+
+const contactText = await contactRes.text();
+
+if (!contactRes.ok) {
+  console.error(
+    "Contact sync failed:",
+    contactRes.status,
+    contactText
+  );
+  return;
+}
+
+const contactJson = contactText ? JSON.parse(contactText) : {};
+const contactId = contactJson?.contact?.id;
+
+if (!contactId) {
+  console.error("No contact ID returned:", contactJson);
+  return;
+}
+
+// 2. Add Contact to List
+const listRes = await fetch(`${API_URL}/api/3/contactLists`, {
+  method: "POST",
+  headers: {
+    "Api-Token": API_KEY,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    contactList: {
+      list: LIST_ID,
+      contact: contactId,
+      status: 1,
+    },
+  }),
+});
+
+const listText = await listRes.text();
+
+if (!listRes.ok) {
+  console.error(
+    "List subscription failed:",
+    listRes.status,
+    listText
+  );
+}
+
+// 3. Add Tag
+const tagRes = await fetch(`${API_URL}/api/3/contactTags`, {
+  method: "POST",
+  headers: {
+    "Api-Token": API_KEY,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    contactTag: {
+      contact: contactId,
+      tag: TAG_ID,
+    },
+  }),
+});
+
+const tagText = await tagRes.text();
+
+if (!tagRes.ok) {
+  console.error(
+    "Tag assignment failed:",
+    tagRes.status,
+    tagText
+  );
+}
+
+console.log(
+  `ActiveCampaign sync successful. Contact ID: ${contactId}`
+);
+
+} catch (err) {
+console.error("ActiveCampaign sync error:", err);
+}
 }
 
 /**
@@ -66,7 +182,7 @@ export function loader({ request }) {
 }
 
 /**
- * MAIN API (SUBSCRIBE)
+ * MAIN API
  */
 export async function action({ request }) {
   if (request.method !== "POST") {
@@ -76,24 +192,13 @@ export async function action({ request }) {
   try {
     const data = await getRequestData(request);
 
-    // validate input
-    const required = [
-      "shop_domain",
-      "product_id",
-      "variant_id",
-      "customer_email",
-    ];
-
+    const required = ["shop_domain", "product_id", "variant_id", "customer_email"];
     const missing = required.filter((f) => !data[f]);
 
     if (missing.length) {
-      return json(
-        { error: `Missing fields: ${missing.join(", ")}` },
-        400
-      );
+      return json({ error: `Missing fields: ${missing.join(", ")}` }, 400);
     }
 
-    // get shop
     const shop = await getShopByDomain(data.shop_domain);
 
     if (!shop) {
@@ -107,27 +212,24 @@ export async function action({ request }) {
     );
 
     /**
-     * CASE 1: Already subscribed (waiting)
+     * CASE 1: already waiting
      */
     if (existing && existing.status === "waiting") {
-      return json(
-        {
-          success: true,
-          message: "Already subscribed",
-          subscriber: existing,
-        },
-        200
-      );
+      const response = json({
+        success: true,
+        message: "Already subscribed",
+        subscriber: existing,
+      });
+
+      setTimeout(() => syncToActiveCampaign(data), 0);
+      return response;
     }
 
     /**
-     * CASE 2: Previously notified → resubscribe + refresh Shopify stock
+     * CASE 2: resubscribe
      */
     if (existing && existing.status === "notified") {
-      const updated = await updateSubscriberStatus(
-        existing.id,
-        "waiting"
-      );
+      const updated = await updateSubscriberStatus(existing.id, "waiting");
 
       const gid = `gid://shopify/ProductVariant/${extractNumericId(
         data.variant_id
@@ -141,14 +243,11 @@ export async function action({ request }) {
         }
       `;
 
-  const shopifyRes = await shopifyGraphql(
-  data.shop_domain,
-  query,
-  { id: gid }
-);
+      const shopifyRes = await shopifyGraphql(data.shop_domain, query, {
+        id: gid,
+      });
 
-      const currentQty =
-        shopifyRes?.productVariant?.inventoryQuantity ?? 0;
+      const currentQty = shopifyRes?.productVariant?.inventoryQuantity ?? 0;
 
       await createOrUpdateInventoryState({
         shop_domain: data.shop_domain,
@@ -158,23 +257,23 @@ export async function action({ request }) {
         last_notified_at: null,
       });
 
-      return json(
-        {
-          success: true,
-          message: "Re-subscribed successfully",
-          subscriber: updated,
-        },
-        200
-      );
+      const response = json({
+        success: true,
+        message: "Re-subscribed successfully",
+        subscriber: updated,
+      });
+
+      setTimeout(() => syncToActiveCampaign(data), 0);
+      return response;
     }
 
     /**
-     * CASE 3: New subscriber
+     * CASE 3: new subscriber
      */
     const subscriber = await createSubscriber({
       shop_domain: String(data.shop_domain),
       product_id: String(data.product_id),
-      product_handle : data.product_handle || null,
+      product_handle: data.product_handle || null,
       product_title: data.product_title || null,
       image_url: data.image_url || null,
       variant_id: String(data.variant_id),
@@ -183,7 +282,7 @@ export async function action({ request }) {
       status: "waiting",
     });
 
-    return json(
+    const response = json(
       {
         success: true,
         message: "Subscribed successfully",
@@ -195,6 +294,9 @@ export async function action({ request }) {
       },
       201
     );
+
+    setTimeout(() => syncToActiveCampaign(data), 0);
+    return response;
   } catch (error) {
     console.error("API Error:", error);
 

@@ -263,7 +263,7 @@ export async function action({ request }) {
         subscriber: updated,
       });
 
-      setTimeout(() => syncToActiveCampaign(data), 0);
+     
       return response;
     }
 

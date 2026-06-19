@@ -39,30 +39,36 @@ export async function fetchVariantInventory({
     .map((id) => toGid(id, "ProductVariant"))
     .filter((id) => id.includes("ProductVariant"));
 
-  const query = `
-    query ($ids: [ID!]!) {
-      nodes(ids: $ids) {
-        ... on ProductVariant {
+const query = `
+  query ($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on ProductVariant {
+        id
+        inventoryQuantity
+        image {
+          url
+        }
+        product {
           id
-          inventoryQuantity
-          image {
+          title
+          handle
+          featuredImage {
             url
           }
-          product {
-            id
-            title
-            handle
-            featuredImage {
-              url
+          priceRangeV2 {
+            minVariantPrice {
+              amount
+            
             }
           }
-          inventoryItem {
-            id
-          }
+        }
+        inventoryItem {
+          id
         }
       }
     }
-  `;
+  }
+`;
 
   try {
    
@@ -216,6 +222,11 @@ export async function runInventorySync() {
             variant.product?.featuredImage?.url ||
             null;
 
+       const productPrice =
+  variant.product?.priceRangeV2?.minVariantPrice?.amount || null;
+
+
+
           const result = await processInventoryChange({
             shop_domain: group.shop_domain,
             product_id: variant.product?.id,
@@ -225,6 +236,8 @@ export async function runInventorySync() {
             current_qty: variant.inventoryQuantity,
             product_title: variant.product?.title,
             product_image: productImage,
+            product_price: productPrice,
+    
           });
 
           if (result?.back_in_stock) {

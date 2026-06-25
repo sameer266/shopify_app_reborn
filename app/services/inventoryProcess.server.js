@@ -324,7 +324,7 @@ const html = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "ht
                                                 <tr>
                                                   <td align="center" style="padding:0;Margin:0;font-size:0px">
                                                     <a target="_blank" href="https://www.instagram.com/ellabacheaus/" style="mso-line-height-rule:exactly;text-decoration:none;color:#FFFFFF;font-size:14px">
-                                                      <img src="https://qnvieg.stripocdn.email/content/guids/CABINET_289dc1bc3b40bce1a81164f1d805cb46d185e1d6832587ea32d1027846b61e6b/images/724225554_18603521491013923_811551153472329092_nwebp.jpg" alt="" width="140" class="adapt-img" style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0" height="140">
+                                                      <img src="https://cdn.shopify.com/s/files/1/2999/1646/files/footer-image1.jpg?v=1782383161" alt="" width="140" class="adapt-img" style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0" height="140">
                                                     </a>
                                                   </td>
                                                 </tr>
@@ -345,7 +345,7 @@ const html = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "ht
                                                 <tr>
                                                   <td align="center" style="padding:0;Margin:0;font-size:0px">
                                                     <a target="_blank" href="https://www.instagram.com/ellabacheaus/" style="mso-line-height-rule:exactly;text-decoration:none;color:#FFFFFF;font-size:14px">
-                                                      <img src="https://qnvieg.stripocdn.email/content/guids/CABINET_289dc1bc3b40bce1a81164f1d805cb46d185e1d6832587ea32d1027846b61e6b/images/722562625_18603245308013923_4030091634448525835_nwebp.jpg" alt="" width="140" class="adapt-img" style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0" height="140">
+                                                      <img src="https://cdn.shopify.com/s/files/1/2999/1646/files/footer-image1.jpg?v=1782383161" alt="" width="140" class="adapt-img" style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0" height="140">
                                                     </a>
                                                   </td>
                                                 </tr>
@@ -366,7 +366,7 @@ const html = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "ht
                                                 <tr>
                                                   <td align="center" style="padding:0;Margin:0;font-size:0px">
                                                     <a target="_blank" href="https://www.instagram.com/ellabacheaus/" style="mso-line-height-rule:exactly;text-decoration:none;color:#FFFFFF;font-size:14px">
-                                                      <img src="https://qnvieg.stripocdn.email/content/guids/CABINET_289dc1bc3b40bce1a81164f1d805cb46d185e1d6832587ea32d1027846b61e6b/images/723041297_18602947639013923_8701471332075080726_nwebp.jpg" alt="" width="140" class="adapt-img" style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0" height="140">
+                                                      <img src="https://cdn.shopify.com/s/files/1/2999/1646/files/footer-image3.jpg?v=1782383173" alt="" width="140" class="adapt-img" style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0" height="140">
                                                     </a>
                                                   </td>
                                                 </tr>
@@ -387,7 +387,7 @@ const html = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "ht
                                                 <tr>
                                                   <td align="center" style="padding:0;Margin:0;font-size:0px">
                                                     <a target="_blank" href="https://www.instagram.com/ellabacheaus/" style="mso-line-height-rule:exactly;text-decoration:none;color:#FFFFFF;font-size:14px">
-                                                      <img src="https://qnvieg.stripocdn.email/content/guids/CABINET_289dc1bc3b40bce1a81164f1d805cb46d185e1d6832587ea32d1027846b61e6b/images/723131293_18602646940013923_278125788106010448_nwebp.jpg" alt="" width="140" class="adapt-img" style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0" height="140">
+                                                      <img src="https://cdn.shopify.com/s/files/1/2999/1646/files/footer-image4.jpg?v=1782383182" alt="" width="140" class="adapt-img" style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0" height="140">
                                                     </a>
                                                   </td>
                                                 </tr>

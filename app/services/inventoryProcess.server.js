@@ -260,8 +260,6 @@ export async function processInventoryChange({
     .join(" ");
 
   const numericVariantId = toNumericId(variant_id);
-  const productPath      = product_handle ?? toNumericId(product_id);
-  const productUrl       = `https://${shop_domain}/products/${productPath}?variant=${numericVariantId}`;
 
   let emailsSent = 0;
 
@@ -286,6 +284,13 @@ try {
       const subProductTitle = sub.product_title || product_title;
       const subImageUrl     = sub.image_url || product_image;
       const subPrice        = sub.price ?? product_price;
+
+      // Prefer the handle from the live GraphQL fetch (freshest); fall back
+      // to the handle captured on the subscriber at signup time; only fall
+      // back to the numeric product_id (which produces an invalid Shopify
+      // product URL) if neither is available.
+      const subProductPath = product_handle ?? sub.product_handle ?? toNumericId(product_id);
+      const productUrl     = `https://${shop_domain}/products/${subProductPath}?variant=${numericVariantId}`;
 
       const unsubscribeUrl = buildUnsubscribeUrl(sub);
 

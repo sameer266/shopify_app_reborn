@@ -1,9 +1,14 @@
 import { firestore, firestoreTimestamp } from "../firebase.server.js";
+import crypto from "crypto";
 
 const shops = firestore.collection("Shopify_app_shop");
 const subscribers = firestore.collection("Shopify_app_subscribers");
 const inventory = firestore.collection("Shopify_app_inventory_sync");
 const logs = firestore.collection("Shopify_app_notification_logs");
+
+
+
+
 
 const now = () => firestoreTimestamp();
 export const db = firestore;
@@ -54,6 +59,8 @@ export async function getShopByDomain(shopDomain) {
   return snap.exists ? { id: snap.id, ...snap.data() } : null;
 }
 
+
+
 /* -------------------------
    SUBSCRIBERS (UPSERT)
 -------------------------- */
@@ -64,6 +71,7 @@ export async function createSubscriber({
   product_handle,
   product_title,
   image_url,
+  price,
   variant_id,
   variant_title,
   customer_email,
@@ -86,6 +94,7 @@ export async function createSubscriber({
     product_handle: product_handle || null,
     product_title: product_title || null,
     image_url: image_url || null,
+    price: price !== undefined && price !== null && price !== "" ? String(price) : null,
     variant_id: String(numericVariantId),
     variant_title: variant_title || null,
     customer_email: String(customer_email),
@@ -111,6 +120,7 @@ export async function createSubscriber({
     if (numericProductId) updatedFields.product_id = String(numericProductId);
     if (product_title) updatedFields.product_title = product_title;
     if (image_url) updatedFields.image_url = image_url;
+    if (price !== undefined && price !== null && price !== "") updatedFields.price = String(price);
     if (variant_title) updatedFields.variant_title = variant_title;
 
     await doc.ref.update(updatedFields);
@@ -152,6 +162,43 @@ export async function getSubscribersForShopVariant(shop_domain, variant_id) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+export async function getAllSubscribersByPage(
+  shop_domain,
+  limitCount = 20,
+  lastDocId = null
+) {
+  if (!shop_domain) return { data: [], lastVisible: null };
+
+  try {
+    let queryRef = subscribers
+      .where("shop_domain", "==", String(shop_domain))
+      .orderBy("created_at", "desc")
+      .limit(limitCount);
+
+    if (lastDocId) {
+      const lastSnap = await subscribers.doc(lastDocId).get();
+      if (lastSnap.exists) {
+        queryRef = queryRef.startAfter(lastSnap);
+      }
+    }
+
+    const snapshot = await queryRef.get();
+
+    const data = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    const lastVisible = snapshot.docs[snapshot.docs.length - 1]?.id ?? null;
+
+    return { data, lastVisible };
+  } catch (error) {
+    console.error("Error fetching subscribers:", error);
+    return { data: [], lastVisible: null };
+  }
+}
+
+
 export async function getAllSubscribers(shop_domain) {
   if (!shop_domain) return [];
   try {
@@ -176,6 +223,34 @@ export async function getWaitingSubscribers(shop_domain) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+export async function getSubscriptionsByEmail(shop_domain, customer_email) {
+  if (!shop_domain || !customer_email) return [];
+  try {
+    const snap = await subscribers
+      .where("shop_domain", "==", String(shop_domain))
+      .where("customer_email", "==", String(customer_email))
+      .get();
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (error) {
+    console.error("Error fetching subscriptions by email:", error);
+    return [];
+  }
+}
+
+export async function getSubscriptionsByProduct(shop_domain, product_id) {
+  if (!shop_domain || !product_id) return [];
+  try {
+    const snap = await subscribers
+      .where("shop_domain", "==", String(shop_domain))
+      .where("product_id", "==", String(product_id))
+      .get();
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (error) {
+    console.error("Error fetching subscriptions by product:", error);
+    return [];
+  }
+}
+
 export async function updateSubscriberStatus(subscriberId, status) {
   const ref = subscribers.doc(subscriberId);
 
@@ -186,6 +261,21 @@ export async function updateSubscriberStatus(subscriberId, status) {
 
   const snap = await ref.get();
   return { id: snap.id, ...snap.data() };
+}
+
+
+export async function getSubscriberById(subscriberId) {
+  const ref = subscribers.doc(subscriberId);
+  const snap = await ref.get();
+
+  if (!snap.exists) {
+    return null;
+  }
+
+  return {
+    id: snap.id,
+    ...snap.data(),
+  };
 }
 
 /* -------------------------
@@ -273,6 +363,7 @@ export async function getAllInventoryStates(shop_domain) {
    NOTIFICATION LOGS
 -------------------------- */
 
+
 export async function createNotificationLog({
   subscriber_id,
   shop_domain,
@@ -280,18 +371,27 @@ export async function createNotificationLog({
   customer_email,
   email_sent,
 }) {
+  const trackingToken = crypto.randomUUID();
+
   const payload = {
     subscriber_id,
     shop_domain: String(shop_domain),
     variant_id: String(variant_id),
     customer_email: customer_email ? String(customer_email) : null,
+    tracking_token: trackingToken,
     email_sent,
+    clicked: false,
+    purchased: false,
     sent_at: now(),
     created_at: now(),
   };
 
   const doc = await logs.add(payload);
-  return { id: doc.id, ...payload };
+
+  return {
+    id: doc.id,
+    ...payload,
+  };
 }
 
 export async function getAllNotificationLogs(shop_domain) {
@@ -307,6 +407,46 @@ export async function getAllNotificationLogs(shop_domain) {
   }
 }
 
+
+export async function getNotificationLogByToken(token) {
+  if (!token) return null;
+
+  const snap = await logs
+    .where("tracking_token", "==", token)
+    .limit(1)
+    .get();
+
+  if (snap.empty) {
+    return null;
+  }
+
+  const doc = snap.docs[0];
+
+  return {
+    id: doc.id,
+    ...doc.data(),
+  };
+}
+
+
+
+export async function updateNotificationLog(id, data) {
+  if (!id) return null;
+
+  const ref = logs.doc(id);
+
+  await ref.update({
+    ...data,
+    updated_at: now(),
+  });
+
+  const snap = await ref.get();
+
+  return {
+    id: snap.id,
+    ...snap.data(),
+  };
+}
 /* -------------------------
    ANALYTICS
 -------------------------- */
@@ -457,3 +597,65 @@ export async function isVariantTracked(shop_domain, variant_id) {
 
   return !snap.empty;
 }
+
+
+/* -------------------------
+   EMAIL SETTINGS
+-------------------------- */
+
+export async function getShopSettings(shopDomain) {
+  if (!shopDomain) return {};
+  try {
+    const snap = await db.collection("Shopify_app_shop_settings").doc(String(shopDomain)).get();
+    return snap.exists ? snap.data() : {};
+  } catch (error) {
+    console.error("Error fetching shop settings:", error);
+    return {};
+  }
+}
+
+export async function saveShopSettings(shopDomain, settings) {
+  if (!shopDomain) return;
+  await db.collection("Shopify_app_shop_settings").doc(String(shopDomain)).set(
+    { ...settings, updated_at: now() },
+    { merge: true }
+  );
+}
+
+export async function getShopSettingsSection(shopDomain, section) {
+  const doc = await getShopSettings(shopDomain);
+  return doc[section] || {};
+}
+
+export async function saveShopSettingsSection(shopDomain, section, data) {
+  if (!shopDomain || !section) return;
+
+  const cleaned = section === "integration" ? sanitizeIntegrationSettings(data) : data;
+
+  await db.collection("Shopify_app_shop_settings").doc(String(shopDomain)).set(
+    { [section]: cleaned, updated_at: now() },
+    { merge: true }
+  );
+}
+
+/**
+ * Trims whitespace from every string field (so a pasted key like " sk_abc "
+ * never gets saved with leading/trailing spaces and silently fails at the
+ * provider's API later). Credential fields are left in place even when an
+ * integration is toggled off, so re-enabling it doesn't force the merchant
+ * to re-enter their key.
+ */
+function sanitizeIntegrationSettings(data) {
+  if (!data || typeof data !== "object") return data;
+
+  const trimmed = {};
+  for (const [key, value] of Object.entries(data)) {
+    trimmed[key] = typeof value === "string" ? value.trim() : value;
+  }
+
+  return trimmed;
+}
+
+
+
+

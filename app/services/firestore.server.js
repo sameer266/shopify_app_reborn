@@ -25,6 +25,18 @@ export function extractNumericId(id) {
   return parts[parts.length - 1] || null;
 }
 
+/**
+ * Normalizes an email for use as a lookup key (trim + lowercase). Without
+ * this, "John@Gmail.com" and "john@gmail.com" are treated as different
+ * subscribers by Firestore's exact-match "==" queries, which causes
+ * duplicate subscriber docs instead of updating the existing one on
+ * resubscribe.
+ */
+function normalizeEmail(email) {
+  if (!email) return null;
+  return String(email).trim().toLowerCase();
+}
+
 /* -------------------------
    SHOP
 -------------------------- */
@@ -80,11 +92,12 @@ export async function createSubscriber({
 
   const numericVariantId = extractNumericId(variant_id);
   const numericProductId = extractNumericId(product_id);
+  const normalizedEmail = normalizeEmail(customer_email);
 
   const snap = await subscribers
     .where("shop_domain", "==", String(shop_domain))
     .where("variant_id", "==", String(numericVariantId))
-    .where("customer_email", "==", String(customer_email))
+    .where("customer_email", "==", normalizedEmail)
     .limit(1)
     .get();
 
@@ -97,7 +110,7 @@ export async function createSubscriber({
     price: price !== undefined && price !== null && price !== "" ? String(price) : null,
     variant_id: String(numericVariantId),
     variant_title: variant_title || null,
-    customer_email: String(customer_email),
+    customer_email: normalizedEmail,
     status: "waiting",
     created_at: now(),
   };
@@ -136,10 +149,12 @@ export async function createSubscriber({
 export async function getSubscriberByEmailVariant(shop_domain, customer_email, variant_id) {
   if (!shop_domain || !customer_email || !variant_id) return null;
 
+  const numericVariantId = extractNumericId(variant_id);
+
   const snap = await subscribers
     .where("shop_domain", "==", String(shop_domain))
-    .where("customer_email", "==", String(customer_email))
-    .where("variant_id", "==", String(variant_id))
+    .where("customer_email", "==", normalizeEmail(customer_email))
+    .where("variant_id", "==", String(numericVariantId))
     .limit(1)
     .get();
 
@@ -228,7 +243,7 @@ export async function getSubscriptionsByEmail(shop_domain, customer_email) {
   try {
     const snap = await subscribers
       .where("shop_domain", "==", String(shop_domain))
-      .where("customer_email", "==", String(customer_email))
+      .where("customer_email", "==", normalizeEmail(customer_email))
       .get();
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   } catch (error) {
@@ -264,19 +279,6 @@ export async function updateSubscriberStatus(subscriberId, status) {
 }
 
 
-export async function getSubscriberById(subscriberId) {
-  const ref = subscribers.doc(subscriberId);
-  const snap = await ref.get();
-
-  if (!snap.exists) {
-    return null;
-  }
-
-  return {
-    id: snap.id,
-    ...snap.data(),
-  };
-}
 
 /* -------------------------
    INVENTORY STATE

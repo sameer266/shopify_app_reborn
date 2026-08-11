@@ -5,13 +5,221 @@ import {
   updateSubscriberStatus,
   createNotificationLog,
   isVariantTracked,
+  getShopSettingsSection,   
 } from "./firestore.server.js";
 
 import { sendEmail } from "../services/mailgun.server.js";
+import { DEFAULT_SETTINGS } from "../utils/emailTemplate.js";
+import { buildUnsubscribeUrl } from "./unsubscribe.server.js";
 
 // strip "gid://shopify/Product/123" → "123"
 const toNumericId = (id) =>
   String(id).includes("gid://") ? String(id).split("/").pop() : String(id);
+
+// ── Dynamic email template helpers ──────────────────────────────────────────
+// Renders the restock email from the merchant's Appearance settings
+// (app.appereance.jsx) instead of a hardcoded template. Kept in this file
+// since it's the only consumer.
+
+function interpolate(str, tokens) {
+  if (!str) return "";
+  return String(str)
+    .replace(/{{\s*product_title\s*}}/g, tokens.product_title ?? "")
+    .replace(/{{\s*variant_title\s*}}/g, tokens.variant_title ?? "")
+    .replace(/{{\s*product_url\s*}}/g, tokens.product_url ?? "")
+    .replace(/{{\s*image_url\s*}}/g, tokens.image_url ?? "")
+    .replace(/{{\s*product_price\s*}}/g, tokens.product_price ?? "")
+    .replace(/{{\s*shop_name\s*}}/g, tokens.shop_name ?? "")
+    .replace(/{{\s*shop_domain\s*}}/g, tokens.shop_domain ?? "")
+    .replace(/{{\s*current_year\s*}}/g, tokens.current_year ?? "")
+    .replace(/{{\s*unsubscribe_url\s*}}/g, tokens.unsubscribe_url ?? "");
+}
+
+// Formats a raw numeric/string price into a display string, e.g. 89 -> "$89.00".
+// Returns "" when there is no usable price so templates can hide the price row.
+function formatPrice(price) {
+  if (price === null || price === undefined || price === "") return "";
+  const num = Number(price);
+  if (Number.isNaN(num)) return "";
+  const formatted = num.toFixed(2);
+  const currencySymbol = "$";
+  return currencySymbol + formatted;
+}
+
+function esc(str) {
+  if (str === null || str === undefined) return "";
+  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Merge saved settings on top of defaults so a missing/partial settings
+// document never produces an undefined value in the template.
+function resolveEmailSettings(savedSettings) {
+  return { ...DEFAULT_SETTINGS, ...(savedSettings || {}) };
+}
+
+// Builds the final restock-notification email HTML from merchant settings.
+function buildRestockEmailHtml(settings, product) {
+  const s = resolveEmailSettings(settings);
+
+  const tokens = {
+    product_title: product?.title || "Product",
+    variant_title: product?.variantTitle || "",
+    product_url: product?.url || "#",
+    image_url: product?.imageUrl || "",
+    product_price: formatPrice(product?.price),
+    shop_name: product?.shopName || "Our Store",
+    shop_domain: product?.shopDomain || "",
+    current_year: String(new Date().getFullYear()),
+    unsubscribe_url: product?.unsubscribeUrl || "",
+  };
+
+  // Custom HTML overrides everything else
+  if (s.custom_html_enabled && s.custom_html) {
+    return interpolate(s.custom_html, tokens);
+  }
+
+  const shopNameLocal = tokens.shop_name;
+  const year = tokens.current_year;
+
+  const headerHtml = s.header_show
+    ? `
+    <tr>
+      <td align="center" bgcolor="${esc(s.header_background_color)}" style="background-color:${esc(s.header_background_color)};padding:24px 20px;">
+        ${
+          s.header_logo_url
+            ? `<img src="${esc(s.header_logo_url)}" alt="${esc(shopNameLocal)}" height="40" style="display:block;border:0;outline:none;text-decoration:none;max-height:40px;max-width:200px;" />`
+            : `<span style="font-family:${s.body_font_family};font-size:18px;font-weight:bold;color:${esc(s.header_text_color)};">${esc(s.header_text)}</span>`
+        }
+      </td>
+    </tr>` : "";
+
+  const variantHtml = s.body_show_variant && tokens.variant_title
+    ? `
+        <tr>
+          <td align="center" style="padding:0 0 6px;">
+            <span style="font-family:${s.body_font_family};font-size:11px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase;color:${esc(s.body_text_color)};opacity:0.6;">
+              ${esc(tokens.variant_title)}
+            </span>
+          </td>
+        </tr>` : "";
+
+  const imageHtml = s.body_show_product_image && tokens.image_url
+    ? `
+        <tr>
+          <td align="center" style="padding:0 0 20px;">
+            <img src="${esc(tokens.image_url)}" alt="${esc(tokens.product_title)}" width="220" style="display:block;border:0;outline:none;text-decoration:none;max-width:220px;border-radius:4px;" />
+          </td>
+        </tr>` : "";
+
+  const priceHtml = s.body_show_price && tokens.product_price
+    ? `
+        <tr>
+          <td align="center" style="padding:0 0 16px;">
+            <span style="font-family:${s.body_font_family};font-size:18px;font-weight:bold;color:${esc(s.body_text_color)};">${esc(tokens.product_price)}</span>
+          </td>
+        </tr>` : "";
+
+  const buttonHtml = s.button_show
+    ? `
+        <tr>
+          <td align="center" style="padding:4px 0 0;">
+            <a href="${esc(tokens.product_url)}" target="_blank"
+               style="display:inline-block;font-family:${s.body_font_family};font-size:13px;font-weight:bold;letter-spacing:0.5px;text-transform:uppercase;text-decoration:none;
+                      background-color:${esc(s.button_background_color)};color:${esc(s.button_text_color)};
+                      padding:14px 34px;border-radius:${esc(s.button_border_radius)};">
+              ${esc(s.button_text)}
+            </a>
+          </td>
+        </tr>` : "";
+
+  const unsubscribeLink = product?.unsubscribeUrl
+    ? `<a href="${esc(product.unsubscribeUrl)}" style="color:${esc(s.footer_text_color)};text-decoration:underline;">${esc(product.unsubscribeUrl)}</a>`
+    : `<a href="#" style="color:${esc(s.footer_text_color)};text-decoration:underline;">${esc(s.footer_unsubscribe_text)}</a>`;
+
+  const unsubscribeHtml = s.footer_show_unsubscribe
+    ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,0.08);font-family:${s.body_font_family};font-size:12px;line-height:1.6;color:${esc(s.footer_text_color)};">
+        <div style="font-weight:bold;">Don't want these notifications anymore?</div>
+        <div style="margin-top:4px;">Unsubscribe:</div>
+        <div style="margin-top:4px;word-break:break-all;">${unsubscribeLink}</div>
+      </div>`
+    : "";
+
+  return `<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <title>${esc(tokens.product_title)} is back in stock</title>
+  <style>
+    body, table, td { margin:0; padding:0; }
+    img { border:0; outline:none; text-decoration:none; }
+    @media only screen and (max-width:600px) {
+      .container { width:100% !important; }
+      .stack-padding { padding-left:16px !important; padding-right:16px !important; }
+    }
+  </style>
+</head>
+<body style="margin:0;padding:0;background-color:#f0f0f0;">
+  <span style="display:none;font-size:0;line-height:0;max-height:0;max-width:0;opacity:0;overflow:hidden;">
+    ${esc(interpolate(s.body_heading, tokens))}
+  </span>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f0f0;">
+    <tr>
+      <td align="center" style="padding:24px 16px;">
+
+        <table role="presentation" class="container" width="560" cellpadding="0" cellspacing="0"
+               style="width:560px;max-width:560px;border-radius:6px;overflow:hidden;">
+
+          ${headerHtml}
+
+          <!-- Body -->
+          <tr>
+            <td class="stack-padding" bgcolor="${esc(s.body_background_color)}" style="background-color:${esc(s.body_background_color)};padding:28px 28px 24px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                ${imageHtml}
+                ${variantHtml}
+                <tr>
+                  <td align="center" style="padding:0 0 10px;">
+                    <span style="font-family:${s.body_font_family};font-size:20px;font-weight:bold;line-height:1.3;color:${esc(s.body_text_color)};">
+                      ${esc(interpolate(s.body_heading, tokens))}
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding:0 0 22px;">
+                    <span style="font-family:${s.body_font_family};font-size:14px;line-height:1.6;color:${esc(s.body_text_color)};opacity:0.8;">
+                      ${esc(interpolate(s.body_subtext, tokens))}
+                    </span>
+                  </td>
+                </tr>
+                ${priceHtml}
+                ${buttonHtml}
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td align="center" class="stack-padding" bgcolor="${esc(s.footer_background_color)}" style="background-color:${esc(s.footer_background_color)};padding:18px 28px;">
+              <span style="font-family:${s.body_font_family};font-size:11px;line-height:1.6;color:${esc(s.footer_text_color)};">
+                ${esc(s.footer_text)}${unsubscribeHtml}
+              </span>
+              <br />
+              <span style="font-family:${s.body_font_family};font-size:11px;color:${esc(s.footer_text_color)};opacity:0.7;">
+                &copy; ${year} ${esc(shopNameLocal)}. All rights reserved.
+              </span>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
 
 export async function processInventoryChange({
   shop_domain,
@@ -57,468 +265,52 @@ export async function processInventoryChange({
 
   let emailsSent = 0;
 
+  // Load merchant Appearance settings once per restock event (not per subscriber)
+let emailSettings;
+try {
+  const saved = await getShopSettingsSection(shop_domain, "email");
+  emailSettings = resolveEmailSettings(saved);
+} catch (err) {
+  console.error("Failed to load email settings, using defaults:", err.message);
+  emailSettings = resolveEmailSettings({});
+}
+
   for (const sub of subscribers) {
     try {
       if (sub.status === "notified") continue;
-const html = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html dir="ltr" xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office" lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta content="width=device-width, initial-scale=1" name="viewport">
-  <meta name="x-apple-disable-message-reformatting">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta content="telephone=no" name="format-detection">
-  <title>Back in Stock – ${shopName}</title>
-  <!--[if (mso 16)]><style type="text/css">a {text-decoration: none;}</style><![endif]-->
-  <!--[if gte mso 9]><style>sup { font-size: 100% !important; }</style><![endif]-->
-  <style type="text/css">
-    .rollover:hover .rollover-first { max-height:0px!important; display:none!important; }
-    .rollover:hover .rollover-second { max-height:none!important; display:block!important; }
-    u + .body img ~ div div { display:none; }
-    #outlook a { padding:0; }
-    span.MsoHyperlink, span.MsoHyperlinkFollowed { color:inherit; mso-style-priority:99; }
-    a.d { mso-style-priority:100!important; text-decoration:none!important; }
-    a[x-apple-data-detectors], #MessageViewBody a {
-      color:inherit!important; text-decoration:none!important;
-      font-size:inherit!important; font-family:inherit!important;
-      font-weight:inherit!important; line-height:inherit!important;
-    }
-    .l { display:none; float:left; overflow:hidden; width:0; max-height:0; line-height:0; mso-hide:all; }
-    .ba:hover { border-color:#003a6b #003a6b #003a6b #003a6b!important; background:#013a5e!important; }
-    .ba:hover a.d, .ba:hover button.d, .ba:hover label.d { background:#013a5e!important; color:#ffffff!important; }
-    @media only screen and (max-width:600px) {
-      .bj { padding-right:0px!important }
-      .bi { padding:20px!important }
-      *[class="gmail-fix"] { display:none!important }
-      p, a { line-height:150%!important }
-      h1, h1 a { line-height:120%!important }
-      h2, h2 a { line-height:120%!important }
-      h3, h3 a { line-height:120%!important }
-      h1 { font-size:36px!important; text-align:center }
-      h2 { font-size:26px!important; text-align:center }
-      h3 { font-size:18px!important; text-align:center }
-      .adapt-img { width:100%!important; height:auto!important }
-      a.d, button.d { display:block!important; font-size:18px!important; padding:10px 20px!important; line-height:120%!important }
-      .ba { display:block!important }
-      .u, .v { width:100%!important; border-collapse:separate!important }
-      .a .c, .a .c * { font-size:28px!important }
-      .a .b, .a .b * { font-size:18px!important }
-    }
-  </style>
-</head>
-<body class="body" style="width:100%;height:100%;font-family:arial,'helvetica neue',helvetica,sans-serif;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;padding:0;Margin:0">
-  <span style="display:none !important;font-size:0px;line-height:0;color:#ffffff;visibility:hidden;opacity:0;height:0;width:0;mso-hide:all">${shopName} – Back in Stock</span>
 
-  <div dir="ltr" class="es-wrapper-color" lang="en" style="background-color:#F6F6F6">
-    <table width="100%" cellspacing="0" cellpadding="0" class="es-wrapper" role="none"
-           style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px;padding:0;Margin:0;width:100%;height:100%;background-repeat:repeat;background-position:center top">
-      <tbody>
-        <tr>
-          <td valign="top" style="padding:0;Margin:0">
+      // Use the price/image/title captured at signup time for this specific
+      // subscriber instead of requiring the webhook/caller to supply a single
+      // shared value (the inventory webhook payload doesn't include product
+      // data, so this avoids an extra GraphQL lookup per restock event).
+      const subProductTitle = sub.product_title || product_title;
+      const subImageUrl     = sub.image_url || product_image;
+      const subPrice        = sub.price ?? product_price;
 
-            <!-- HEADER: Logo -->
-            <table cellpadding="0" cellspacing="0" align="center" class="r" role="none"
-                   style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px;width:100%;table-layout:fixed !important;background-color:transparent;background-repeat:repeat;background-position:center top">
-              <tbody>
-                <tr>
-                  <td align="center" style="padding:0;Margin:0">
-                    <table bgcolor="#ffffff" align="center" cellpadding="0" cellspacing="0" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px;background-color:#ffffff;width:600px" role="none">
-                      <tbody>
-                        <tr>
-                          <td align="left" bgcolor="#ffffff" style="padding:20px 20px 0;Margin:0;background-color:#ffffff">
-                            <table cellpadding="0" cellspacing="0" width="100%" role="none" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                              <tbody>
-                                <tr>
-                                  <td valign="top" align="center" class="bj" style="padding:0;Margin:0;width:560px">
-                                    <table cellpadding="0" cellspacing="0" width="100%" bgcolor="#ffffff" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px;background-color:#ffffff" role="presentation">
-                                      <tbody>
-                                        <tr>
-                                          <td align="center" style="padding:10px 0 30px;Margin:0;font-size:0px">
-                                            <a target="_blank" href="https://${shop_domain}" style="mso-line-height-rule:exactly;text-decoration:none;color:#333333;font-size:14px">
-                                              <img src="https://cdn.shopify.com/s/files/1/2999/1646/files/transparent_logo_blue.png?v=1700704859"
-                                                   alt="${shopName}" height="30" title="${shopName}"
-                                                   style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0" width="171">
-                                            </a>
-                                          </td>
-                                        </tr>
-                                      </tbody>
-                                    </table>
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+      const unsubscribeUrl = buildUnsubscribeUrl(sub);
 
-            <!-- BODY: Product -->
-            <table cellpadding="0" cellspacing="0" align="center" class="q" role="none"
-                   style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px;width:100%;table-layout:fixed !important">
-              <tbody>
-                <tr>
-                  <td align="center" style="padding:0;Margin:0">
-                    <table bgcolor="#ffffff" align="center" cellpadding="0" cellspacing="0" class="bf" role="none"
-                           style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px;background-color:#FFFFFF;width:600px">
-                      <tbody>
-                        <tr>
-                          <td align="left" style="padding:0;Margin:0">
-                            <table cellpadding="0" cellspacing="0" width="100%" role="none" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                              <tbody>
-                                <tr>
-                                  <td align="center" valign="top" style="padding:0;Margin:0;width:600px">
-                                    <table cellpadding="0" cellspacing="0" width="100%" role="presentation" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                                      <tbody>
-                                        <!-- Heading -->
-                                        <tr>
-                                          <td align="center" class="a" style="padding:10px;Margin:0">
-                                            <h3 style="Margin:0;font-family:arial,'helvetica neue',helvetica,sans-serif;mso-line-height-rule:exactly;letter-spacing:0;font-size:22px;font-style:normal;font-weight:normal;line-height:26px;color:#001e37">
-                                              <b>${product_title} is now&nbsp;</b>
-                                            </h3>
-                                            <h3 class="c" style="Margin:0;font-family:arial,'helvetica neue',helvetica,sans-serif;mso-line-height-rule:exactly;letter-spacing:0;font-size:28px;font-style:normal;font-weight:normal;line-height:34px;color:#001e37">
-                                              <b>BACK IN STOCK</b>
-                                            </h3>
-                                          </td>
-                                        </tr>
-                                        <!-- Product Image -->
-                                        ${product_image ? `
-                                        <tr>
-                                          <td align="center" style="padding:0;Margin:0;font-size:0px">
-                                            <img src="${product_image}" alt="${product_title}" width="600" class="adapt-img"
-                                                 style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0;max-height:600px;object-fit:cover">
-                                          </td>
-                                        </tr>` : ""}
-                                      </tbody>
-                                    </table>
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          </td>
-                        </tr>
-
-                        <!-- Product Details & CTA -->
-                        <tr>
-                          <td align="left" style="padding:0 20px 20px;Margin:0">
-                            <table cellpadding="0" cellspacing="0" width="100%" role="none" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                              <tbody>
-                                <tr>
-                                  <td align="center" valign="top" style="padding:0;Margin:0;width:560px">
-                                    <table cellpadding="0" cellspacing="0" width="100%" bgcolor="#ffffff"
-                                           style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px;background-color:#ffffff" role="presentation">
-                                      <tbody>
-                                        <tr>
-                                          <td align="center" class="a" style="padding:15px 0 20px;Margin:0">
-                                            <p class="b" style="Margin:0;mso-line-height-rule:exactly;font-family:arial,'helvetica neue',helvetica,sans-serif;line-height:36px;letter-spacing:0;font-weight:normal;color:#001e37;font-size:18px">
-                                              <strong style="font-weight:bolder !important">${product_title}</strong>
-                                            </p>
-<p style="Margin:0;mso-line-height-rule:exactly;font-family:arial,'helvetica neue',helvetica,sans-serif;line-height:28px;color:#001e37;font-size:18px;">
-  <strong>$${product_price}</strong>
-</p>
-                                            <p style="Margin:0;mso-line-height-rule:exactly;font-family:arial,'helvetica neue',helvetica,sans-serif;line-height:28px;letter-spacing:0;font-weight:normal;color:#001e37;font-size:14px"><br></p>
-                                            <p style="Margin:0;mso-line-height-rule:exactly;font-family:arial,'helvetica neue',helvetica,sans-serif;line-height:28px;letter-spacing:0;font-weight:normal;color:#001e37;font-size:14px">
-                                              The wait is over. Your item is in stock and available now.&nbsp;<br>Place your order before it sells out.<br>
-                                            </p>
-                                          </td>
-                                        </tr>
-                                        <tr>
-                                          <td align="center" style="padding:0 0 20px;Margin:0">
-                                            <span class="ba" style="border-style:solid;border-color:#001E37;background:#001E37;border-width:0px 0px 2px 0px;display:inline-block;border-radius:0px;width:auto;text-align:center !important">
-                                              <a href="${productUrl}" target="_blank" class="d"
-                                                 style="mso-style-priority:100 !important;text-decoration:none !important;mso-line-height-rule:exactly;color:#FFFFFF;font-size:20px;font-weight:normal;padding:20px 30px;display:inline-block;background:#001E37;border-radius:0px;font-family:arial,'helvetica neue',helvetica,sans-serif;font-style:normal;line-height:24px;width:auto;text-align:center;letter-spacing:0;mso-padding-alt:0;mso-border-alt:10px solid #001E37;text-transform:none">
-                                                ORDER NOW
-                                              </a>
-                                            </span>
-                                          </td>
-                                        </tr>
-                                      </tbody>
-                                    </table>
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          </td>
-                        </tr>
-
-                      </tbody>
-                    </table>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
-            <!-- FOOTER -->
-            <table cellspacing="0" cellpadding="0" align="center" class="s" role="none"
-                   style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px;width:100%;table-layout:fixed !important;background-color:transparent;background-repeat:repeat;background-position:center top">
-              <tbody>
-                <tr>
-                  <td bgcolor="#001e37" align="center" style="padding:0;Margin:0;background-color:#001e37">
-                    <table cellspacing="0" cellpadding="0" align="center" class="be"
-                           style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px;background-color:transparent;width:600px" role="none">
-                      <tbody>
-                        <!-- Social -->
-                        <tr>
-                          <td align="left" style="Margin:0;padding:20px 20px 30px">
-                            <table width="100%" cellspacing="0" cellpadding="0" role="none" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                              <tbody>
-                                <tr>
-                                  <td valign="top" align="center" style="padding:0;Margin:0;width:560px">
-                                    <table width="100%" cellspacing="0" cellpadding="0" role="presentation" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                                      <tbody>
-                                        <tr>
-                                          <td align="center" style="padding:20px 0;Margin:0">
-                                            <h3 style="Margin:0;font-family:arial,'helvetica neue',helvetica,sans-serif;mso-line-height-rule:exactly;letter-spacing:0;font-size:24px;font-style:normal;font-weight:normal;line-height:29px;color:#ffffff"><b>follow us</b></h3>
-                                          </td>
-                                        </tr>
-                                        <tr>
-                                          <td align="center" style="padding:0;Margin:0;font-size:0">
-                                            <table cellspacing="0" cellpadding="0" class="f x" role="presentation" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                                              <tbody>
-                                                <tr>
-                                                  <td valign="top" align="center" style="padding:0 30px 0 0;Margin:0">
-                                                    <a target="_blank" href="http://www.facebook.com/ellabache" style="mso-line-height-rule:exactly;text-decoration:none;color:#FFFFFF;font-size:14px">
-                                                      <img src="https://qnvieg.stripocdn.email/content/assets/img/social-icons/circle-white-bordered/facebook-circle-white-bordered.png" alt="Fb" title="Facebook" width="32" height="32" style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0">
-                                                    </a>
-                                                  </td>
-                                                  <td valign="top" align="center" style="padding:0 30px 0 0;Margin:0">
-                                                    <a target="_blank" href="http://www.instagram.com/ellabacheaus" style="mso-line-height-rule:exactly;text-decoration:none;color:#FFFFFF;font-size:14px">
-                                                      <img src="https://qnvieg.stripocdn.email/content/assets/img/social-icons/circle-white-bordered/instagram-circle-white-bordered.png" alt="Ig" title="Instagram" width="32" height="32" style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0">
-                                                    </a>
-                                                  </td>
-                                                  <td valign="top" align="center" style="padding:0;Margin:0">
-                                                    <a target="_blank" href="https://www.youtube.com/c/ellabache" style="mso-line-height-rule:exactly;text-decoration:none;color:#FFFFFF;font-size:14px">
-                                                      <img src="https://qnvieg.stripocdn.email/content/assets/img/social-icons/circle-white-bordered/youtube-circle-white-bordered.png" alt="Yt" title="Youtube" width="32" height="32" style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0">
-                                                    </a>
-                                                  </td>
-                                                </tr>
-                                              </tbody>
-                                            </table>
-                                          </td>
-                                        </tr>
-                                      </tbody>
-                                    </table>
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          </td>
-                        </tr>
-
-                        <!-- Instagram photo gallery -->
-                        <tr>
-                          <td align="left" class="esdev-adapt-off" style="padding:0 20px;Margin:0">
-                            <table cellpadding="0" cellspacing="0" class="esdev-mso-table" role="none" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px;width:560px">
-                              <tbody>
-                                <tr>
-                                  <td valign="top" class="esdev-mso-td" style="padding:0;Margin:0">
-                                    <table cellpadding="0" cellspacing="0" align="left" class="u" role="none" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px;float:left">
-                                      <tbody>
-                                        <tr>
-                                          <td align="center" class="bj" style="padding:0;Margin:0;width:140px">
-                                            <table cellpadding="0" cellspacing="0" width="100%" role="presentation" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                                              <tbody>
-                                                <tr>
-                                                  <td align="center" style="padding:0;Margin:0;font-size:0px">
-                                                    <a target="_blank" href="https://www.instagram.com/ellabacheaus/" style="mso-line-height-rule:exactly;text-decoration:none;color:#FFFFFF;font-size:14px">
-                                                      <img src="https://cdn.shopify.com/s/files/1/2999/1646/files/footer-image1.jpg?v=1782383161" alt="" width="140" class="adapt-img" style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0" height="140">
-                                                    </a>
-                                                  </td>
-                                                </tr>
-                                              </tbody>
-                                            </table>
-                                          </td>
-                                        </tr>
-                                      </tbody>
-                                    </table>
-                                  </td>
-                                  <td valign="top" class="esdev-mso-td" style="padding:0;Margin:0">
-                                    <table cellpadding="0" cellspacing="0" align="left" class="u" role="none" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px;float:left">
-                                      <tbody>
-                                        <tr>
-                                          <td align="center" style="padding:0;Margin:0;width:140px">
-                                            <table cellpadding="0" cellspacing="0" width="100%" role="presentation" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                                              <tbody>
-                                                <tr>
-                                                  <td align="center" style="padding:0;Margin:0;font-size:0px">
-                                                    <a target="_blank" href="https://www.instagram.com/ellabacheaus/" style="mso-line-height-rule:exactly;text-decoration:none;color:#FFFFFF;font-size:14px">
-                                                      <img src="https://cdn.shopify.com/s/files/1/2999/1646/files/footer-image1.jpg?v=1782383161" alt="" width="140" class="adapt-img" style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0" height="140">
-                                                    </a>
-                                                  </td>
-                                                </tr>
-                                              </tbody>
-                                            </table>
-                                          </td>
-                                        </tr>
-                                      </tbody>
-                                    </table>
-                                  </td>
-                                  <td valign="top" class="esdev-mso-td" style="padding:0;Margin:0">
-                                    <table cellpadding="0" cellspacing="0" align="left" class="u" role="none" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px;float:left">
-                                      <tbody>
-                                        <tr>
-                                          <td align="center" style="padding:0;Margin:0;width:140px">
-                                            <table cellpadding="0" cellspacing="0" width="100%" role="presentation" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                                              <tbody>
-                                                <tr>
-                                                  <td align="center" style="padding:0;Margin:0;font-size:0px">
-                                                    <a target="_blank" href="https://www.instagram.com/ellabacheaus/" style="mso-line-height-rule:exactly;text-decoration:none;color:#FFFFFF;font-size:14px">
-                                                      <img src="https://cdn.shopify.com/s/files/1/2999/1646/files/footer-image3.jpg?v=1782383173" alt="" width="140" class="adapt-img" style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0" height="140">
-                                                    </a>
-                                                  </td>
-                                                </tr>
-                                              </tbody>
-                                            </table>
-                                          </td>
-                                        </tr>
-                                      </tbody>
-                                    </table>
-                                  </td>
-                                  <td valign="top" class="esdev-mso-td" style="padding:0;Margin:0">
-                                    <table cellpadding="0" cellspacing="0" align="right" class="v" role="none" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px;float:right">
-                                      <tbody>
-                                        <tr>
-                                          <td align="center" style="padding:0;Margin:0;width:140px">
-                                            <table cellpadding="0" cellspacing="0" width="100%" role="presentation" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                                              <tbody>
-                                                <tr>
-                                                  <td align="center" style="padding:0;Margin:0;font-size:0px">
-                                                    <a target="_blank" href="https://www.instagram.com/ellabacheaus/" style="mso-line-height-rule:exactly;text-decoration:none;color:#FFFFFF;font-size:14px">
-                                                      <img src="https://cdn.shopify.com/s/files/1/2999/1646/files/footer-image4.jpg?v=1782383182" alt="" width="140" class="adapt-img" style="display:block;font-size:14px;border:0;outline:none;text-decoration:none;margin:0" height="140">
-                                                    </a>
-                                                  </td>
-                                                </tr>
-                                              </tbody>
-                                            </table>
-                                          </td>
-                                        </tr>
-                                      </tbody>
-                                    </table>
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          </td>
-                        </tr>
-
-                        <!-- Spacer -->
-                        <tr>
-                          <td align="left" style="padding:0;Margin:0">
-                            <table cellpadding="0" cellspacing="0" width="100%" role="none" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                              <tbody>
-                                <tr>
-                                  <td align="center" valign="top" style="padding:0;Margin:0;width:600px">
-                                    <table cellpadding="0" cellspacing="0" width="100%" role="presentation" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                                      <tbody>
-                                        <tr>
-                                          <td align="center" style="padding:20px;Margin:0;font-size:0">
-                                            <table height="100%" cellpadding="0" cellspacing="0" border="0" width="100%" role="presentation" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                                              <tbody>
-                                                <tr>
-                                                  <td style="padding:0;Margin:0;width:100%;margin:0px;border-bottom:0px solid #cccccc;background:unset;height:0px"></td>
-                                                </tr>
-                                              </tbody>
-                                            </table>
-                                          </td>
-                                        </tr>
-                                      </tbody>
-                                    </table>
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          </td>
-                        </tr>
-
-                        <!-- Footer links & legal -->
-                        <tr>
-                          <td align="left" style="padding:0;Margin:0">
-                            <table cellpadding="0" cellspacing="0" width="100%" role="none" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                              <tbody>
-                                <tr>
-                                  <td align="center" valign="top" style="padding:0;Margin:0;width:600px">
-                                    <table cellpadding="0" cellspacing="0" width="100%" role="presentation" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                                      <tbody>
-                                        <tr>
-                                          <td align="center" style="padding:20px;Margin:0;font-size:0">
-                                            <table border="0" width="100%" height="100%" cellpadding="0" cellspacing="0" role="presentation" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                                              <tbody>
-                                                <tr>
-                                                  <td style="padding:0;Margin:0;border-bottom:1px solid #ffffff;background:unset;height:0px;width:100%;margin:0px"></td>
-                                                </tr>
-                                              </tbody>
-                                            </table>
-                                          </td>
-                                        </tr>
-                                        <tr>
-                                          <td style="padding:0;Margin:0">
-                                            <table cellpadding="0" cellspacing="0" width="100%" class="h" role="presentation" style="mso-table-lspace:0pt;mso-table-rspace:0pt;border-collapse:collapse;border-spacing:0px">
-                                              <tbody>
-                                                <tr class="links">
-                                                  <td align="center" valign="top" width="33.33%" class="n" style="Margin:0;border:0;padding:10px 5px 30px">
-                                                    <div style="vertical-align:middle;display:block">
-                                                      <a target="_blank" href="https://${shop_domain}" style="mso-line-height-rule:exactly;text-decoration:none;font-family:arial,'helvetica neue',helvetica,sans-serif;display:block;color:#ffffff;font-size:14px">Shop online</a>
-                                                    </div>
-                                                  </td>
-                                                  <td align="center" valign="top" width="33.33%" class="n" style="Margin:0;border:0;padding:10px 5px 30px">
-                                                    <div style="vertical-align:middle;display:block">
-                                                      <a target="_blank" href="https://www.ellabache.com.au/pages/find-a-salon" style="mso-line-height-rule:exactly;text-decoration:none;font-family:arial,'helvetica neue',helvetica,sans-serif;display:block;color:#ffffff;font-size:14px">Find a salon</a>
-                                                    </div>
-                                                  </td>
-                                                  <td align="center" valign="top" width="33.33%" class="n" style="Margin:0;border:0;padding:10px 5px 30px">
-                                                    <div style="vertical-align:middle;display:block">
-                                                      <a target="_blank" href="https://www.ellabache.com.au/pages/franchise" style="mso-line-height-rule:exactly;text-decoration:none;font-family:arial,'helvetica neue',helvetica,sans-serif;display:block;color:#ffffff;font-size:14px">Own a salon</a>
-                                                    </div>
-                                                  </td>
-                                                </tr>
-                                              </tbody>
-                                            </table>
-                                          </td>
-                                        </tr>
-                                        <tr>
-                                          <td align="center" style="Margin:0;padding:5px 10px 30px">
-                                            <p style="Margin:0;mso-line-height-rule:exactly;font-family:arial,'helvetica neue',helvetica,sans-serif;line-height:21px;letter-spacing:0;font-weight:normal;color:#ffffff;font-size:14px">
-                                              You are receiving this email because you signed up for back-in-stock alerts.
-                                              For full terms and conditions visit
-                                              <a target="_blank" href="https://${shop_domain}" style="mso-line-height-rule:exactly;text-decoration:underline;color:#ffffff;font-size:14px">${shop_domain}</a>.
-                                            </p>
-                                            <p style="Margin:0;mso-line-height-rule:exactly;font-family:arial,'helvetica neue',helvetica,sans-serif;line-height:21px;letter-spacing:0;font-weight:normal;color:#ffffff;font-size:14px">
-                                              <br>© ${new Date().getFullYear()} ${shopName}. All rights reserved.
-                                            </p>
-                                       
-                                          </td>
-                                        </tr>
-                                      </tbody>
-                                    </table>
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          </td>
-                        </tr>
-
-                      </tbody>
-                    </table>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-</body>
-</html>`;
+      let html;
+      try {
+        html = buildRestockEmailHtml(emailSettings, {
+          title: subProductTitle,
+          variantTitle: sub.variant_title || null,
+          url: productUrl,
+          imageUrl: subImageUrl,
+          price: subPrice,
+          shopName,
+          shopDomain: shop_domain,
+          unsubscribeUrl,
+        });
+      } catch (templateErr) {
+        // Last-resort fallback so a template/setting bug never blocks delivery
+        console.error("Template build failed, using plain fallback email:", templateErr.message);
+        html = `<p>${subProductTitle} is back in stock at ${shopName}.</p><p><a href="${productUrl}">Shop now</a></p>`;
+      }
 
       await sendEmail({
         to:      sub.customer_email,
-        subject: `Back in Stock: ${product_title} — ${shopName}`,
-        text:    `${product_title} is back in stock at ${shopName}. View product: ${productUrl}`,
+        subject: `Back in Stock: ${subProductTitle} — ${shopName}`,
+        text:    `${subProductTitle} is back in stock at ${shopName}. View product: ${productUrl}\n\nUnsubscribe: ${unsubscribeUrl}`,
         html,
       });
 

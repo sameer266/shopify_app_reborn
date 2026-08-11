@@ -4,9 +4,8 @@ import FormData from "form-data";
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY || "";
 const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || "";
-const MAILGUN_FROM_EMAIL = "dev@ellabache.com.au"
+const MAILGUN_FROM_EMAIL = "noreply@u.ellabache.com.au"
 const MAILGUN_FROM_NAME = "Ella Baché"
-
 
 const mailgun = new Mailgun(FormData);
 

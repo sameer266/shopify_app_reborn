@@ -44,6 +44,7 @@ const query = `
     nodes(ids: $ids) {
       ... on ProductVariant {
         id
+        price
         inventoryQuantity
         image {
           url
@@ -54,12 +55,6 @@ const query = `
           handle
           featuredImage {
             url
-          }
-          priceRangeV2 {
-            minVariantPrice {
-              amount
-            
-            }
           }
         }
         inventoryItem {
@@ -78,7 +73,7 @@ const query = `
     );
 
     const res = await fetch(
-      `https://${shopDomain}/admin/api/2024-07/graphql.json`,
+      `https://${shopDomain}/admin/api/2025-07/graphql.json`,
       {
         method: "POST",
         headers: {
@@ -222,10 +217,7 @@ export async function runInventorySync() {
             variant.product?.featuredImage?.url ||
             null;
 
-       const productPrice =
-  variant.product?.priceRangeV2?.minVariantPrice?.amount || null;
-
-
+       const productPrice = variant.price ?? null;
 
           const result = await processInventoryChange({
             shop_domain: group.shop_domain,

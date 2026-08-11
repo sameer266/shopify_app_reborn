@@ -51,6 +51,29 @@ function esc(str) {
   return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/**
+ * Normalize image URLs: convert protocol-relative URLs to absolute HTTPS.
+ * Input: "//www.ellabache.com.au/cdn/shop/files/image.jpg"
+ * Output: "https://www.ellabache.com.au/cdn/shop/files/image.jpg"
+ * Already absolute URLs pass through unchanged.
+ */
+function normalizeImageUrl(url) {
+  if (!url) return url;
+  const str = String(url).trim();
+  
+  // Protocol-relative URL: //example.com/path
+  if (str.startsWith("//")) {
+    return `https:${str}`;
+  }
+  
+  // Already absolute with http/https: pass through
+  if (str.startsWith("http://") || str.startsWith("https://")) {
+    return str;
+  }
+  
+  return str;
+}
+
 // Merge saved settings on top of defaults so a missing/partial settings
 // document never produces an undefined value in the template.
 function resolveEmailSettings(savedSettings) {
@@ -282,8 +305,22 @@ try {
       // shared value (the inventory webhook payload doesn't include product
       // data, so this avoids an extra GraphQL lookup per restock event).
       const subProductTitle = sub.product_title || product_title;
-      const subImageUrl     = sub.image_url || product_image;
+      
+      // Fallback image: subscriber saved → product image from Shopify → placeholder
+      // Also normalize protocol-relative URLs (//example.com) to absolute HTTPS URLs
+      let subImageUrl = sub.image_url || product_image ;
+      subImageUrl = normalizeImageUrl(subImageUrl);
+      
       const subPrice        = sub.price ?? product_price;
+
+      // Log for debugging image issues
+      if (!sub.image_url && !product_image) {
+        console.warn(`[EMAIL] No image found for variant ${variant_id}, subscriber ${sub.customer_email} - using placeholder`);
+      } else if (!sub.image_url && product_image) {
+        console.log(`[EMAIL] Using live Shopify image for ${sub.customer_email}: ${product_image}`);
+      } else if (sub.image_url) {
+        console.log(`[EMAIL] Using subscriber-saved image for ${sub.customer_email}: ${sub.image_url}`);
+      }
 
       // Prefer the handle from the live GraphQL fetch (freshest); fall back
       // to the handle captured on the subscriber at signup time; only fall
